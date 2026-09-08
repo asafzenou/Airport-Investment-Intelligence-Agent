@@ -118,8 +118,8 @@ flowchart TD
 
     M -->|"extract()"| S1["ArcGIS REST"]
     T -->|"extract()"| S2["Socrata SODA"]
-    R -->|"extract()"| S3["BTS PREZIP ZIP"]
-    O -->|"extract()"| S4["BTS PREZIP ZIPs"]
+    R -->|"extract() → RuntimeError"| S3["⚠ No automatable source"]
+    O -->|"extract()"| S4["BTS PREZIP index + ZIPs ×12"]
 
     M -->|"load()"| DAL["AviationDAL"]
     T -->|"load()"| DAL
@@ -221,17 +221,26 @@ $offset=<incremented per page>
 
 **Provider:** USDOT Bureau of Transportation Statistics, TranStats.
 
-**Dataset:** T-100 Segment — All Carriers, annual file.
+**Dataset:** T-100 Segment — All Carriers.
 
-**Access:** BTS PREZIP bulk download (ZIP containing one CSV). The URL pattern is stable but not formally documented by BTS:
+**KNOWN LIMITATION — source cannot be automated:** No reliable programmatic endpoint exists for T-100 Segment data with the required columns (YEAR, CLASS, PASSENGERS, DISTANCE).
 
-    https://transtats.bts.gov/PREZIP/T_T100_SEGMENT_ALL_CARRIER_{YEAR}.zip
+- The BTS PREZIP directory contains T-100 files only under opaque numeric IDs (e.g. `T_T100_SEGMENT_893734.zip`) that are missing the required columns.
+- No Socrata dataset for T-100 OD pairs exists on data.bts.gov.
+- The official source at `transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FMG` requires a multi-step ASP.NET ViewState form submission that is not reliably automatable.
 
-**Window:** The previous complete calendar year (`date.today().year - 1`). One ZIP is downloaded per pipeline run.
+**Current behavior:** `extract()` raises a `RuntimeError` on every run. The `run()` method catches it and records `status = "error"` in `sync_state`. Any previously loaded rows are preserved.
 
-**Filter:** Only rows with `CLASS = 'F'` (scheduled passenger service) are retained.
+**To load routes data manually:**
+1. Visit `https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FMG`
+2. Select fields: `YEAR, MONTH, ORIGIN, DEST, DISTANCE, DEPARTURES_SCHEDULED, DEPARTURES_PERFORMED, PASSENGERS, SEATS, CLASS`
+3. Download the ZIP for the desired year
+4. Unzip and load the CSV (manual import path not yet implemented)
 
-**Aggregation:** Rows are summed across carriers and aircraft types into one row per `(ORIGIN, DEST, YEAR, MONTH)`.
+**When data is loaded, aggregation logic applies:**
+
+- Only rows with `CLASS = 'F'` (scheduled passenger service) are retained.
+- Rows are summed across carriers and aircraft types into one row per `(ORIGIN, DEST, YEAR, MONTH)`.
 
 **Field mapping:**
 
@@ -255,32 +264,34 @@ $offset=<incremented per page>
 
 **Dataset:** Marketing Carrier On-Time Performance (Beginning January 2018).
 
-**Access:** BTS PREZIP monthly bulk downloads. URL pattern (where `M` has no leading zero):
+**Access:** BTS PREZIP monthly bulk downloads. The PREZIP directory (`https://transtats.bts.gov/PREZIP/`) is parsed at runtime to discover which months are actually published. URL format (no parentheses, `M` has no leading zero):
 
-    https://transtats.bts.gov/PREZIP/On_Time_Marketing_Carrier_On_Time_Performance_(Beginning_January_2018)_{YYYY}_{M}.zip
+    https://transtats.bts.gov/PREZIP/On_Time_Marketing_Carrier_On_Time_Performance_Beginning_January_2018_{YYYY}_{M}.zip
 
-**Window:** The 12 most recent complete calendar months (ending with the month before the current calendar month, i.e. excluding the in-progress month). One ZIP is downloaded per month, 12 total per pipeline run.
+**Window:** The `OPERATIONS_MONTHS_WINDOW` (12) most recently published months as discovered from the PREZIP index. BTS typically publishes each month 4–6 weeks after it closes, so the pipeline reads the index rather than assuming the previous calendar month is available. The actual latest published period is recorded in `sync_state.latest_source_period` after each successful run.
 
-**Aggregation:** Individual flight rows are aggregated into one row per `(ORIGIN, YEAR, MONTH)`. A flight is counted as delayed when `DEP_DELAY > 15` minutes (BTS standard threshold). Cancelled flights are excluded from delay averages.
+**Aggregation:** Individual flight rows are aggregated into one row per `(Origin, Year, Month)`. A flight is counted as delayed when `DepDelay > 15` minutes (BTS standard threshold). Cancelled flights are excluded from delay averages.
+
+**Note on column names:** The CSV inside each ZIP uses title-case column names (`Origin`, `Year`, `Month`, `DepDelay`, `ArrDelay`, `Cancelled`, `Diverted`, `CarrierDelay`, `WeatherDelay`, `NASDelay`, `SecurityDelay`, `LateAircraftDelay`), not the all-caps names shown in some BTS documentation.
 
 **Field mapping (source → aggregated local field):**
 
 | Source field | Aggregated local field |
 |---|---|
-| `ORIGIN` | `airport_code` |
-| `YEAR` | `year` |
-| `MONTH` | `month` |
+| `Origin` | `airport_code` |
+| `Year` | `year` |
+| `Month` | `month` |
 | count of rows | `scheduled_flights` |
-| count where `CANCELLED = 1` | `cancelled_flights` |
-| count where `DIVERTED = 1` | `diverted_flights` |
-| count where `DEP_DELAY > 15` (non-cancelled) | `delayed_flights` |
-| mean `DEP_DELAY` (non-cancelled) | `average_departure_delay` |
-| mean `ARR_DELAY` (non-cancelled) | `average_arrival_delay` |
-| sum `CARRIER_DELAY` | `carrier_delay_minutes` |
-| sum `WEATHER_DELAY` | `weather_delay_minutes` |
-| sum `NAS_DELAY` | `nas_delay_minutes` |
-| sum `SECURITY_DELAY` | `security_delay_minutes` |
-| sum `LATE_AIRCRAFT_DELAY` | `late_aircraft_delay_minutes` |
+| count where `Cancelled = 1` | `cancelled_flights` |
+| count where `Diverted = 1` | `diverted_flights` |
+| count where `DepDelay > 15` (non-cancelled) | `delayed_flights` |
+| mean `DepDelay` (non-cancelled) | `average_departure_delay` |
+| mean `ArrDelay` (non-cancelled) | `average_arrival_delay` |
+| sum `CarrierDelay` | `carrier_delay_minutes` |
+| sum `WeatherDelay` | `weather_delay_minutes` |
+| sum `NASDelay` | `nas_delay_minutes` |
+| sum `SecurityDelay` | `security_delay_minutes` |
+| sum `LateAircraftDelay` | `late_aircraft_delay_minutes` |
 
 **Scope limitation:** Covers domestic scheduled passenger flights reported by marketing carriers only. International flights, charter services, and general aviation are excluded. This must be disclosed when presenting congestion or unmet-demand indicators.
 
@@ -398,7 +409,7 @@ flowchart LR
 
     M -->|async extract| S1["ArcGIS"]
     T -->|async extract| S2["Socrata"]
-    R -->|async extract| S3["BTS ZIP"]
+    R -->|"extract() → RuntimeError"| S3["⚠ No source"]
     O -->|async extract| S4["BTS ZIPs ×12"]
 
     M -->|sync transform + load| DB[("aviation.db")]
@@ -434,10 +445,10 @@ Checking every 24 hours does not imply the provider publishes daily updates. The
 ## 8. Assumptions and known limitations
 
 - **`unmet demand`** is not directly published by any of these sources. It will be represented by a proxy derived from passenger growth, load factor, departures, delays, and cancellations.
-- **T-100 publication lag:** BTS publishes T-100 data with a delay of several months. The routes ETL uses the previous complete calendar year's annual file. Data described as "routes" reflects that year, not the current one.
+- **T-100 routes source unavailable:** The BTS T-100 Segment data has no stable programmatic download URL. `RoutesETL.extract()` raises a `RuntimeError` and records an error in `sync_state` on every run. Routes data must be loaded manually; see section 4.3.
 - **On-time performance scope:** Marketing Carrier On-Time Performance covers domestic scheduled passenger flights reported by marketing carriers. International flights, charters, and general aviation are excluded.
-- **PREZIP URL stability:** The BTS PREZIP URL format for both the T-100 annual file and the on-time monthly files has been stable for several years but is not formally documented and could change without notice. If a download fails, the pipeline preserves existing rows and records an error in `sync_state`.
-- **`latest_source_period`** exists in the `sync_state` schema but is not currently populated by any ETL. The column is reserved for future use when the newest available source period can be determined from the response.
+- **PREZIP index discovery:** `AirportOperationsETL` queries `https://transtats.bts.gov/PREZIP/` at runtime to discover which monthly files are actually published. This avoids assuming the previous calendar month is available, since BTS typically publishes with a 4–6 week lag. The PREZIP URL format itself is stable but not formally documented and could change without notice.
+- **`latest_source_period`** is populated by `AirportOperationsETL` after each successful run (format: `YYYY-MM`). It is not populated by other ETLs.
 - **Long-haul threshold** (`LONG_HAUL_MILES = 2 500`) is a configurable assumption documented in `config.py`, not an official BTS classification.
 - **Local database purpose:** The database supports analytical comparison. It does not estimate construction costs or project ROI.
 - **No vector database:** All selected sources are structured and require exact filtering, aggregation, and deterministic calculations.

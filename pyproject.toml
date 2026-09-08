@@ -1,0 +1,34 @@
+[project]
+name = "airport-investment-intelligence-agent"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "Asaf Zenou", email = "zenoua@post.bgu.ac.il" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.7,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "respx>=0.23.1",
+    "ruff>=0.16.6",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
