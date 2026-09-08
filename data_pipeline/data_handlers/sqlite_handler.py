@@ -73,6 +73,76 @@ CREATE TABLE IF NOT EXISTS sync_state (
     status                TEXT,
     error_message         TEXT
 );
+
+CREATE TABLE IF NOT EXISTS analytics_expansion_scores (
+    airport_code             TEXT    NOT NULL,
+    airport_name             TEXT,
+    state_code               TEXT,
+    current_passengers       INTEGER,
+    previous_passengers      INTEGER,
+    passenger_growth_percent REAL,
+    load_factor_percent      REAL,
+    delay_rate_percent       REAL,
+    expansion_score          REAL,
+    rank_position            INTEGER,
+    is_rankable              INTEGER,
+    calculated_at            TEXT    NOT NULL,
+    period_start             TEXT    NOT NULL,
+    period_end               TEXT    NOT NULL,
+    data_scope               TEXT,
+    limitations              TEXT
+);
+
+CREATE TABLE IF NOT EXISTS analytics_congestion (
+    comparison_key            TEXT    NOT NULL,
+    airport_code              TEXT    NOT NULL,
+    scheduled_departures      INTEGER,
+    delayed_departures        INTEGER,
+    cancelled_departures      INTEGER,
+    delay_rate_percent        REAL,
+    cancellation_rate_percent REAL,
+    average_delay_minutes     REAL,
+    congestion_index          REAL,
+    comparison_result         TEXT,
+    calculated_at             TEXT    NOT NULL,
+    period_start              TEXT    NOT NULL,
+    period_end                TEXT    NOT NULL,
+    data_scope                TEXT,
+    limitations               TEXT
+);
+
+CREATE TABLE IF NOT EXISTS analytics_long_haul (
+    airport_code              TEXT    NOT NULL,
+    long_haul_threshold_miles REAL,
+    long_haul_flights         INTEGER,
+    total_departing_flights   INTEGER,
+    long_haul_percentage      REAL,
+    calculated_at             TEXT    NOT NULL,
+    period_start              TEXT    NOT NULL,
+    period_end                TEXT    NOT NULL,
+    data_scope                TEXT,
+    limitations               TEXT
+);
+
+CREATE TABLE IF NOT EXISTS analytics_unmet_demand (
+    airport_code                      TEXT    NOT NULL,
+    current_passengers                INTEGER,
+    current_seats                     INTEGER,
+    load_factor_percent               REAL,
+    passenger_growth_percent          REAL,
+    delay_rate_percent                REAL,
+    cancellation_rate_percent         REAL,
+    target_load_factor_percent        REAL,
+    estimated_additional_seats_needed INTEGER,
+    unmet_passenger_capacity_proxy    INTEGER,
+    unmet_demand_score                REAL,
+    reason_flags                      TEXT,
+    calculated_at                     TEXT    NOT NULL,
+    period_start                      TEXT    NOT NULL,
+    period_end                        TEXT    NOT NULL,
+    data_scope                        TEXT,
+    limitations                       TEXT
+);
 """
 
 
@@ -117,3 +187,9 @@ class SQLiteHandler:
         with self._connect() as conn:
             cur = conn.execute(sql, params)
             return cur.fetchone()
+
+    @contextmanager
+    def transaction(self) -> Generator[sqlite3.Connection, None, None]:
+        """Yield an open connection for multi-statement atomic operations."""
+        with self._connect() as conn:
+            yield conn

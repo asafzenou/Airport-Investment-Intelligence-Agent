@@ -148,6 +148,58 @@ class AviationDAL:
             (dataset_name, last_sync, latest_source_period, rows_loaded, status, error_message),
         )
 
+    # ------------------------------------------------------------------
+    # Analytics reads
+    # ------------------------------------------------------------------
+
+    def get_airports_in_states(self, state_codes: frozenset[str]) -> list[dict[str, Any]]:
+        """Return airports whose state_code is in the given set."""
+        placeholders = ",".join("?" * len(state_codes))
+        rows = self._db.fetchall(
+            f"SELECT airport_code, airport_name, state_code FROM airports "
+            f"WHERE state_code IN ({placeholders})",
+            tuple(state_codes),
+        )
+        return [dict(r) for r in rows]
+
+    def get_traffic_for_airports(self, airport_codes: list[str]) -> list[dict[str, Any]]:
+        """Return all traffic rows for the given airports ordered by airport, year, month."""
+        placeholders = ",".join("?" * len(airport_codes))
+        rows = self._db.fetchall(
+            f"SELECT airport_code, year, month, passengers, seats, departures "
+            f"FROM airport_traffic WHERE airport_code IN ({placeholders}) "
+            f"ORDER BY airport_code, year, month",
+            tuple(airport_codes),
+        )
+        return [dict(r) for r in rows]
+
+    def get_operations_for_airports(self, airport_codes: list[str]) -> list[dict[str, Any]]:
+        """Return all operations rows for the given airports ordered by airport, year, month."""
+        placeholders = ",".join("?" * len(airport_codes))
+        rows = self._db.fetchall(
+            f"SELECT airport_code, year, month, scheduled_flights, delayed_flights, "
+            f"cancelled_flights, carrier_delay_minutes, weather_delay_minutes, "
+            f"nas_delay_minutes, security_delay_minutes, late_aircraft_delay_minutes "
+            f"FROM airport_operations WHERE airport_code IN ({placeholders}) "
+            f"ORDER BY airport_code, year, month",
+            tuple(airport_codes),
+        )
+        return [dict(r) for r in rows]
+
+    def get_routes_from_airport(self, airport_code: str) -> list[dict[str, Any]]:
+        """Return all route rows originating from the given airport."""
+        rows = self._db.fetchall(
+            "SELECT origin_airport, destination_airport, year, month, "
+            "distance_miles, performed_departures "
+            "FROM routes WHERE origin_airport = ? ORDER BY year, month",
+            (airport_code,),
+        )
+        return [dict(r) for r in rows]
+
+    def transaction(self):
+        """Expose an atomic multi-statement SQLite transaction."""
+        return self._db.transaction()
+
     def needs_refresh(self, dataset_name: str, max_age_hours: float) -> bool:
         """Return True when no successful sync exists or the last sync exceeds max_age_hours."""
         state = self.get_sync_state(dataset_name)

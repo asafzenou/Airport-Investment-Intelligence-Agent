@@ -2,7 +2,7 @@
 
 import pytest
 
-from data_pipeline.config import EXPANSION_SCORE_WEIGHTS, NEW_ENGLAND_STATES
+from data_pipeline.config import EXPANSION_WEIGHTS, NEW_ENGLAND_STATES
 
 
 def test_new_england_states_exact_membership() -> None:
@@ -14,11 +14,11 @@ def test_new_england_states_is_frozenset() -> None:
 
 
 def test_expansion_weights_sum_to_one() -> None:
-    assert sum(EXPANSION_SCORE_WEIGHTS.values()) == pytest.approx(1.0)
+    assert sum(EXPANSION_WEIGHTS.values()) == pytest.approx(1.0)
 
 
 def test_expansion_weights_all_between_zero_and_one() -> None:
-    for name, weight in EXPANSION_SCORE_WEIGHTS.items():
+    for name, weight in EXPANSION_WEIGHTS.items():
         assert 0.0 <= weight <= 1.0, f"Weight '{name}' = {weight} is out of [0, 1]"
 
 
