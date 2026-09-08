@@ -4,6 +4,7 @@ import httpx
 import pytest
 import respx
 
+from data_pipeline.config import OPERATIONS_MONTHS_WINDOW
 from data_pipeline.dal.aviation_dal import AviationDAL
 from data_pipeline.data_handlers.sqlite_handler import SQLiteHandler
 from data_pipeline.etls.airport_operations_etl import (
@@ -195,7 +196,7 @@ async def test_extract_reads_latest_12_months(dal: AviationDAL) -> None:
         etl = AirportOperationsETL(dal, client)
         records = await etl.extract()
 
-    assert len(records) == len(_TEST_MONTHS)
+    assert len(records) == OPERATIONS_MONTHS_WINDOW
 
 
 @respx.mock
@@ -269,7 +270,7 @@ async def test_run_populates_db_and_records_latest_period(
         await etl.run()
 
     stored = tmp_db.fetchall("SELECT * FROM airport_operations")
-    assert len(stored) == len(_TEST_MONTHS)
+    assert len(stored) == OPERATIONS_MONTHS_WINDOW
     state = dal.get_sync_state("airport_operations")
     assert state is not None
     assert state["status"] == "success"

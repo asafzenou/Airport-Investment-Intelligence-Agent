@@ -5,6 +5,7 @@ from pathlib import Path
 import httpx
 import respx
 
+from data_pipeline.config import OPERATIONS_MONTHS_WINDOW
 from data_pipeline.data_handlers.sqlite_handler import SQLiteHandler
 from data_pipeline.data_pipeline import run_pipeline
 from data_pipeline.etls.airport_metadata_etl import ENDPOINT as META_ENDPOINT
@@ -139,17 +140,13 @@ async def test_pipeline_populates_all_tables(tmp_path: Path) -> None:
     assert len(traffic) == 1
 
     ops = handler.fetchall("SELECT * FROM airport_operations")
-    assert len(ops) == 12  # one per month in the 12-month window
+    assert len(ops) == OPERATIONS_MONTHS_WINDOW
 
     sync = handler.fetchall("SELECT dataset_name, status FROM sync_state ORDER BY dataset_name")
     statuses = {r["dataset_name"]: r["status"] for r in sync}
 
-    # Three datasets load successfully.
-    for name in ("airport_metadata", "airport_traffic", "airport_operations"):
+    for name in ("airport_metadata", "airport_traffic", "airport_operations", "routes"):
         assert statuses.get(name) == "success", f"{name} not success: {statuses}"
-
-    # Routes always records an error (T-100 source cannot be automated).
-    assert statuses.get("routes") == "error", f"routes should be error: {statuses}"
 
 
 @respx.mock

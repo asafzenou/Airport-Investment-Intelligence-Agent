@@ -153,6 +153,8 @@ class AviationDAL:
         state = self.get_sync_state(dataset_name)
         if not state or not state.get("last_successful_sync"):
             return True
+        if state.get("status") != "success":
+            return True
         last = datetime.datetime.fromisoformat(state["last_successful_sync"])
         age_seconds = (datetime.datetime.utcnow() - last).total_seconds()
         return age_seconds > max_age_hours * 3600

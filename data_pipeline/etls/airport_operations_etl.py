@@ -37,6 +37,7 @@ import httpx
 
 from data_pipeline.config import OPERATIONS_MONTHS_WINDOW, REFRESH_HOURS
 from data_pipeline.dal.aviation_dal import AviationDAL
+from data_pipeline.etls._http_retry import get_with_retry
 
 log = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ class AirportOperationsETL:
                 "airport_operations: month %d/%d — %d-%02d  %s",
                 i, total, year, month, url,
             )
-            resp = await self._client.get(url, follow_redirects=True)
+            resp = await get_with_retry(self._client, url, follow_redirects=True)
             resp.raise_for_status()
             size_mb = len(resp.content) / 1_048_576
             if resp.content[:2] != b"PK":

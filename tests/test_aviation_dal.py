@@ -124,6 +124,13 @@ def test_update_sync_state_preserves_last_sync_on_error(dal: AviationDAL) -> Non
     assert after["error_message"] == "network failure"
 
 
+def test_needs_refresh_true_when_status_error_despite_recent_success(dal: AviationDAL) -> None:
+    dal.update_sync_state("airport_operations", status="success", rows_loaded=100)
+    dal.update_sync_state("airport_operations", status="error", error_message="timeout")
+    # last_successful_sync is still set, but status=error means data is stale
+    assert dal.needs_refresh("airport_operations", max_age_hours=168) is True
+
+
 def test_update_sync_state_rows_loaded(dal: AviationDAL) -> None:
     dal.update_sync_state("routes", status="success", rows_loaded=42)
     state = dal.get_sync_state("routes")

@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from data_pipeline.config import LONG_HAUL_MILES
+from data_pipeline.config import LONG_HAUL_MILES, OPERATIONS_MONTHS_WINDOW
 from data_pipeline.dal.aviation_dal import AviationDAL
 from data_pipeline.data_handlers.sqlite_handler import SQLiteHandler
 from data_pipeline.etls.airport_operations_etl import _PREZIP_INDEX, _prezip_url
@@ -145,19 +145,18 @@ async def test_extract_reads_latest_month(dal: AviationDAL) -> None:
     respx.get(_PREZIP_INDEX).mock(
         return_value=httpx.Response(200, text=_index_html(_TEST_MONTHS))
     )
-    year, month = _TEST_MONTHS[0]
-    csv_content = "\n".join([_CSV_HEADER, _csv_row(year=year, month=month)])
-    zip_bytes = make_zip(f"On_Time_{year}_{month}.csv", csv_content)
-    respx.get(_prezip_url(year, month)).mock(
-        return_value=httpx.Response(200, content=zip_bytes)
-    )
+    for year, month in _TEST_MONTHS[:OPERATIONS_MONTHS_WINDOW]:
+        csv_content = "\n".join([_CSV_HEADER, _csv_row(year=year, month=month)])
+        zip_bytes = make_zip(f"On_Time_{year}_{month}.csv", csv_content)
+        respx.get(_prezip_url(year, month)).mock(
+            return_value=httpx.Response(200, content=zip_bytes)
+        )
 
     async with httpx.AsyncClient() as client:
         etl = RoutesETL(dal, client)
         records = await etl.extract()
 
-    # OPERATIONS_MONTHS_WINDOW = 1, so only the latest month is fetched
-    assert len(records) == 1
+    assert len(records) == OPERATIONS_MONTHS_WINDOW
 
 
 @respx.mock
@@ -165,12 +164,12 @@ async def test_extract_sets_latest_period(dal: AviationDAL) -> None:
     respx.get(_PREZIP_INDEX).mock(
         return_value=httpx.Response(200, text=_index_html(_TEST_MONTHS))
     )
-    year, month = _TEST_MONTHS[0]
-    csv_content = "\n".join([_CSV_HEADER, _csv_row(year=year, month=month)])
-    zip_bytes = make_zip(f"On_Time_{year}_{month}.csv", csv_content)
-    respx.get(_prezip_url(year, month)).mock(
-        return_value=httpx.Response(200, content=zip_bytes)
-    )
+    for year, month in _TEST_MONTHS[:OPERATIONS_MONTHS_WINDOW]:
+        csv_content = "\n".join([_CSV_HEADER, _csv_row(year=year, month=month)])
+        zip_bytes = make_zip(f"On_Time_{year}_{month}.csv", csv_content)
+        respx.get(_prezip_url(year, month)).mock(
+            return_value=httpx.Response(200, content=zip_bytes)
+        )
 
     async with httpx.AsyncClient() as client:
         etl = RoutesETL(dal, client)
@@ -214,19 +213,19 @@ async def test_run_populates_db_and_records_success(
     respx.get(_PREZIP_INDEX).mock(
         return_value=httpx.Response(200, text=_index_html(_TEST_MONTHS))
     )
-    year, month = _TEST_MONTHS[0]
-    csv_content = "\n".join([_CSV_HEADER, _csv_row(year=year, month=month)])
-    zip_bytes = make_zip(f"On_Time_{year}_{month}.csv", csv_content)
-    respx.get(_prezip_url(year, month)).mock(
-        return_value=httpx.Response(200, content=zip_bytes)
-    )
+    for year, month in _TEST_MONTHS[:OPERATIONS_MONTHS_WINDOW]:
+        csv_content = "\n".join([_CSV_HEADER, _csv_row(year=year, month=month)])
+        zip_bytes = make_zip(f"On_Time_{year}_{month}.csv", csv_content)
+        respx.get(_prezip_url(year, month)).mock(
+            return_value=httpx.Response(200, content=zip_bytes)
+        )
 
     async with httpx.AsyncClient() as client:
         etl = RoutesETL(dal, client)
         await etl.run()
 
     stored = tmp_db.fetchall("SELECT * FROM routes")
-    assert len(stored) == 1
+    assert len(stored) == OPERATIONS_MONTHS_WINDOW
     state = dal.get_sync_state("routes")
     assert state is not None
     assert state["status"] == "success"
