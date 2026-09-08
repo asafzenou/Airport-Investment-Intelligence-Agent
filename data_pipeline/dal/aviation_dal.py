@@ -200,6 +200,37 @@ class AviationDAL:
         """Expose an atomic multi-statement SQLite transaction."""
         return self._db.transaction()
 
+    def get_expansion_scores(self, limit: int) -> list[dict[str, Any]]:
+        """Read the stored ranking, followed by unrankable airports."""
+        if type(limit) is not int or not 1 <= limit <= 10:
+            raise ValueError("limit must be an integer between 1 and 10.")
+        rows = self._db.fetchall(
+            "SELECT * FROM analytics_expansion_scores "
+            "ORDER BY CASE WHEN is_rankable = 1 THEN 0 ELSE 1 END, "
+            "CASE WHEN is_rankable = 1 THEN rank_position END ASC, airport_code ASC LIMIT ?",
+            (limit,),
+        )
+        return [dict(row) for row in rows]
+
+    def get_congestion_comparison(self) -> list[dict[str, Any]]:
+        rows = self._db.fetchall(
+            "SELECT * FROM analytics_congestion WHERE comparison_key = ? ORDER BY airport_code",
+            ("LAX_SNA",),
+        )
+        return [dict(row) for row in rows]
+
+    def get_long_haul_analysis(self) -> dict[str, Any] | None:
+        row = self._db.fetchone(
+            "SELECT * FROM analytics_long_haul WHERE airport_code = ?", ("ANC",),
+        )
+        return dict(row) if row else None
+
+    def get_unmet_demand_analysis(self) -> dict[str, Any] | None:
+        row = self._db.fetchone(
+            "SELECT * FROM analytics_unmet_demand WHERE airport_code = ?", ("SFO",),
+        )
+        return dict(row) if row else None
+
     def needs_refresh(self, dataset_name: str, max_age_hours: float) -> bool:
         """Return True when no successful sync exists or the last sync exceeds max_age_hours."""
         state = self.get_sync_state(dataset_name)
