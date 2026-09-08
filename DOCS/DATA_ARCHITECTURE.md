@@ -16,7 +16,7 @@ The chat agent and scoring logic will be built on top of this layer and are outs
 
 ## 2. Code structure
 
-```text
+```
 data_pipeline/
 ├── config.py
 ├── data_pipeline.py
@@ -24,19 +24,25 @@ data_pipeline/
 │   └── aviation_dal.py
 ├── data_handlers/
 │   └── sqlite_handler.py
-└── etls/
-    ├── airport_metadata_etl.py
-    ├── airport_traffic_etl.py
-    ├── routes_etl.py
-    └── airport_operations_etl.py
+├── etls/
+│   ├── _http_retry.py
+│   ├── airport_metadata_etl.py
+│   ├── airport_traffic_etl.py
+│   ├── routes_etl.py
+│   └── airport_operations_etl.py
+└── logger/
+    └── __init__.py
 
 storage/
 └── aviation.db
+
+logs/
+└── data_pipeline_<YYYYMMDD_HHMMSS>.log
 ```
 
 Run directly:
 
-```text
+```
 python -m data_pipeline.data_pipeline
 ```
 
@@ -44,7 +50,7 @@ python -m data_pipeline.data_pipeline
 
 ### `data_pipeline.py`
 
-Creates the four ETL objects and runs them concurrently:
+Creates the four ETL objects and runs them concurrently. On startup it calls `configure_logging()` to set up console and file logging. After all ETLs complete it prints a per-dataset status summary and the elapsed time.
 
 ```python
 async with httpx.AsyncClient(timeout=timeout) as client:
@@ -80,7 +86,7 @@ Knows the database schema and exposes domain-level operations. Does not make HTT
 - `upsert_traffic(rows)` — same pattern on `airport_traffic`
 - `upsert_routes(rows)` — same pattern on `routes`
 - `upsert_operations(rows)` — same pattern on `airport_operations`
-- `update_sync_state(dataset_name, *, status, rows_loaded, error_message)` — upserts a `sync_state` row; uses `COALESCE` so an error call never clears `last_successful_sync`
+- `update_sync_state(dataset_name, *, status, rows_loaded, error_message, latest_source_period)` — upserts a `sync_state` row; uses `COALESCE` so an error call never clears `last_successful_sync`
 - `get_sync_state(dataset_name)` — returns the current `sync_state` row or `None`
 - `needs_refresh(dataset_name, max_age_hours)` — returns `True` when no successful sync exists or the last sync exceeds `max_age_hours`
 
@@ -94,6 +100,23 @@ Manages connections and SQL execution. Contains no aviation or BTS concepts.
 - `executemany(sql, params) -> int` — batch upsert, returns row count
 - `fetchall(sql, params)` and `fetchone(sql, params)`
 
+### `logger/__init__.py`
+
+Centralised logging configuration. Call `configure_logging()` once at startup (or let `run_pipeline()` do it). Safe to call multiple times — handlers are added only once per session.
+
+- Attaches a `StreamHandler` (console) and a timestamped `FileHandler` under `logs/`.
+- Keeps at most two `data_pipeline_*.log` files; older ones are deleted automatically.
+- Suppresses verbose `httpx` / `httpcore` output below `WARNING`.
+- Returns the `Path` of the log file created for this session.
+
+### `etls/_http_retry.py`
+
+Shared retry helper used by `RoutesETL` and `AirportOperationsETL` when downloading BTS PREZIP ZIP files.
+
+- `get_with_retry(client, url, **kwargs)` — retries up to 3 times on transient transport errors (`ReadError`, `ReadTimeout`, `ConnectTimeout`).
+- Backoff: 1 s after the first failure, 2 s after the second.
+- 4xx/5xx HTTP responses are returned as-is; the caller decides whether to `raise_for_status()`.
+
 ### `config.py`
 
 Central location for tunable constants:
@@ -101,13 +124,25 @@ Central location for tunable constants:
 | Name | Value | Meaning |
 |---|---|---|
 | `DB_PATH` | `storage/aviation.db` | Default database path |
-| `REFRESH_HOURS["airport_metadata"]` | 168 h (7 days) | Max age before re-fetch |
+| `REFRESH_HOURS["airport_metadata"]` | 672 h (28 days) | Max age before re-fetch |
 | `REFRESH_HOURS["airport_traffic"]` | 24 h | Max age before re-fetch |
-| `REFRESH_HOURS["routes"]` | 24 h | Max age before re-fetch |
-| `REFRESH_HOURS["airport_operations"]` | 24 h | Max age before re-fetch |
+| `REFRESH_HOURS["routes"]` | 168 h (7 days) | Max age before re-fetch |
+| `REFRESH_HOURS["airport_operations"]` | 168 h (7 days) | Max age before re-fetch |
 | `TRAFFIC_MONTHS_WINDOW` | 36 | Months of traffic history requested |
-| `OPERATIONS_MONTHS_WINDOW` | 12 | Months of on-time performance history |
+| `OPERATIONS_MONTHS_WINDOW` | 1 | Months of on-time/routes history loaded (MVP: 1 to limit runtime) |
 | `LONG_HAUL_MILES` | 2 500.0 | Min distance to count as long-haul (Anchorage queries) |
+| `NEW_ENGLAND_STATES` | CT, ME, MA, NH, RI, VT | US Census Bureau New England division; used to derive the `region` field in `airports` |
+| `EXPANSION_SCORE_WEIGHTS` | see below | Per-signal weights for the terminal-expansion composite score; must sum to 1.0 |
+
+`EXPANSION_SCORE_WEIGHTS` values:
+
+| Signal | Weight |
+|---|---:|
+| `passenger_growth` | 0.35 |
+| `load_factor` | 0.25 |
+| `departure_growth` | 0.20 |
+| `delay_rate` | 0.15 |
+| `cancellation_rate` | 0.05 |
 
 ```mermaid
 flowchart TD
@@ -118,8 +153,8 @@ flowchart TD
 
     M -->|"extract()"| S1["ArcGIS REST"]
     T -->|"extract()"| S2["Socrata SODA"]
-    R -->|"extract() → RuntimeError"| S3["⚠ No automatable source"]
-    O -->|"extract()"| S4["BTS PREZIP index + ZIPs ×12"]
+    R -->|"extract()"| S4["BTS PREZIP ZIPs ×1"]
+    O -->|"extract()"| S4
 
     M -->|"load()"| DAL["AviationDAL"]
     T -->|"load()"| DAL
@@ -140,13 +175,13 @@ flowchart TD
 
 **Endpoint:**
 
-```text
+```
 https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_Aviation_Facilities/FeatureServer/0/query
 ```
 
 **Fixed query parameters:**
 
-```text
+```
 where=COUNTRY_CODE='US'
 outFields=ARPT_ID,ICAO_ID,ARPT_NAME,CITY,STATE_CODE,STATE_NAME,LAT_DECIMAL,LONG_DECIMAL,EFF_DATE
 returnGeometry=false
@@ -181,13 +216,13 @@ resultRecordCount=1000
 
 **Endpoint:**
 
-```text
+```
 https://data.bts.gov/resource/r495-tyji.json
 ```
 
 **Query parameters (SoQL):**
 
-```text
+```
 $select=origin_airport_code,year,reporting_month,total_departures,
         total_passengers,total_seats,total_load_factor,total_passengers_flight
 $where=reporting_month >= '<36 months ago>'
@@ -221,42 +256,37 @@ $offset=<incremented per page>
 
 **Provider:** USDOT Bureau of Transportation Statistics, TranStats.
 
-**Dataset:** T-100 Segment — All Carriers.
+**Dataset:** Marketing Carrier On-Time Performance (Beginning January 2018) — same dataset used by `AirportOperationsETL`.
 
-**KNOWN LIMITATION — source cannot be automated:** No reliable programmatic endpoint exists for T-100 Segment data with the required columns (YEAR, CLASS, PASSENGERS, DISTANCE).
+**Access:** BTS PREZIP monthly bulk downloads. The PREZIP directory is parsed at runtime (via the shared `_available_months()` helper from `airport_operations_etl.py`) to discover which months are actually published. The `OPERATIONS_MONTHS_WINDOW` (1) most recently published months are loaded.
 
-- The BTS PREZIP directory contains T-100 files only under opaque numeric IDs (e.g. `T_T100_SEGMENT_893734.zip`) that are missing the required columns.
-- No Socrata dataset for T-100 OD pairs exists on data.bts.gov.
-- The official source at `transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FMG` requires a multi-step ASP.NET ViewState form submission that is not reliably automatable.
+**URL format:**
 
-**Current behavior:** `extract()` raises a `RuntimeError` on every run. The `run()` method catches it and records `status = "error"` in `sync_state`. Any previously loaded rows are preserved.
+```
+https://transtats.bts.gov/PREZIP/On_Time_Marketing_Carrier_On_Time_Performance_Beginning_January_2018_{YYYY}_{M}.zip
+```
 
-**To load routes data manually:**
-1. Visit `https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FMG`
-2. Select fields: `YEAR, MONTH, ORIGIN, DEST, DISTANCE, DEPARTURES_SCHEDULED, DEPARTURES_PERFORMED, PASSENGERS, SEATS, CLASS`
-3. Download the ZIP for the desired year
-4. Unzip and load the CSV (manual import path not yet implemented)
-
-**When data is loaded, aggregation logic applies:**
-
-- Only rows with `CLASS = 'F'` (scheduled passenger service) are retained.
-- Rows are summed across carriers and aircraft types into one row per `(ORIGIN, DEST, YEAR, MONTH)`.
+**Aggregation:** Individual flight rows are grouped by `(Origin, Dest, Year, Month)`. `scheduled_departures` is incremented for every row; `performed_departures` is incremented when `Cancelled != 1`. The `Distance` field supplies `distance_miles`. The On-Time dataset does not contain passenger or seat totals — `passengers` and `seats` are stored as `NULL`.
 
 **Field mapping:**
 
-| Source field | Local field |
-|---|---|
-| `ORIGIN` | `origin_airport` |
-| `DEST` | `destination_airport` |
-| `YEAR` | `year` |
-| `MONTH` | `month` |
-| `DISTANCE` | `distance_miles` |
-| `DEPARTURES_SCHEDULED` | `scheduled_departures` |
-| `DEPARTURES_PERFORMED` | `performed_departures` |
-| `PASSENGERS` | `passengers` |
-| `SEATS` | `seats` |
+| Source field | Local field | Notes |
+|---|---|---|
+| `Origin` | `origin_airport` | |
+| `Dest` | `destination_airport` | |
+| `Year` | `year` | |
+| `Month` | `month` | |
+| `Distance` | `distance_miles` | |
+| count of rows | `scheduled_departures` | |
+| count where `Cancelled != 1` | `performed_departures` | |
+| *(not available)* | `passengers` | Always `NULL` |
+| *(not available)* | `seats` | Always `NULL` |
 
 **Long-haul definition:** `distance_miles >= LONG_HAUL_MILES` (2 500 miles). This is a documented assumption, not an official BTS classification.
+
+**Scope limitation:** Covers domestic scheduled flights reported by marketing carriers only. International flights, charter services, cargo-only routes, and general aviation are excluded. Long-haul percentages are therefore percentages within this domestic-flight scope.
+
+**`latest_source_period`:** Set to the newest period loaded (format: `YYYY-MM`) and recorded in `sync_state` after each successful run.
 
 ### 4.4 Delays and cancellations — `AirportOperationsETL`
 
@@ -268,7 +298,7 @@ $offset=<incremented per page>
 
     https://transtats.bts.gov/PREZIP/On_Time_Marketing_Carrier_On_Time_Performance_Beginning_January_2018_{YYYY}_{M}.zip
 
-**Window:** The `OPERATIONS_MONTHS_WINDOW` (12) most recently published months as discovered from the PREZIP index. BTS typically publishes each month 4–6 weeks after it closes, so the pipeline reads the index rather than assuming the previous calendar month is available. The actual latest published period is recorded in `sync_state.latest_source_period` after each successful run.
+**Window:** The `OPERATIONS_MONTHS_WINDOW` (1) most recently published months as discovered from the PREZIP index. BTS typically publishes each month 4–6 weeks after it closes, so the pipeline reads the index rather than assuming the previous calendar month is available. The actual latest published period is recorded in `sync_state.latest_source_period` after each successful run.
 
 **Aggregation:** Individual flight rows are aggregated into one row per `(Origin, Year, Month)`. A flight is counted as delayed when `DepDelay > 15` minutes (BTS standard threshold). Cancelled flights are excluded from delay averages.
 
@@ -377,7 +407,7 @@ One row per `(airport_code, year, month)`. Source publishes one row per airport 
 
 ### `routes`
 
-One row per `(origin_airport, destination_airport, year, month)`, aggregated from individual carrier/aircraft-type rows in the T-100 file.
+One row per `(origin_airport, destination_airport, year, month)`, aggregated from individual flight rows in the on-time performance file. `passengers` and `seats` are always `NULL` because the On-Time dataset does not contain totals for those fields.
 
 ### `airport_operations`
 
@@ -391,7 +421,7 @@ One row per dataset (`airport_metadata`, `airport_traffic`, `routes`, `airport_o
 |---|---|
 | `dataset_name` | Primary key |
 | `last_successful_sync` | UTC ISO timestamp of the last successful `run()` |
-| `latest_source_period` | Newest period published by the provider (not currently populated) |
+| `latest_source_period` | Newest period published by the provider; populated by `RoutesETL` and `AirportOperationsETL` |
 | `rows_loaded` | Row count from the last successful load |
 | `status` | `"success"` or `"error"` |
 | `error_message` | Exception string on failure; `NULL` on success |
@@ -409,8 +439,8 @@ flowchart LR
 
     M -->|async extract| S1["ArcGIS"]
     T -->|async extract| S2["Socrata"]
-    R -->|"extract() → RuntimeError"| S3["⚠ No source"]
-    O -->|async extract| S4["BTS ZIPs ×12"]
+    R -->|async extract| S4["BTS ZIPs ×1"]
+    O -->|async extract| S4
 
     M -->|sync transform + load| DB[("aviation.db")]
     T -->|sync transform + load| DB
@@ -419,6 +449,8 @@ flowchart LR
 ```
 
 The four `run()` coroutines are launched concurrently with `asyncio.gather`. Inside each coroutine, `transform()` and `load()` are synchronous — asyncio cannot interleave them with other coroutines while they execute. This naturally serialises SQLite writes without explicit locking.
+
+`RoutesETL` and `AirportOperationsETL` both hit the same BTS PREZIP index URL concurrently. Each independently parses the index and downloads the ZIP(s) it needs; there is no shared state between them.
 
 ## 7. Refresh and failure strategy
 
@@ -435,20 +467,21 @@ Refresh intervals (from `config.py`):
 
 | Dataset | Interval |
 |---|---:|
-| Airport metadata | 168 h (7 days) |
+| Airport metadata | 672 h (28 days) |
 | Airport traffic | 24 h |
-| Routes | 24 h |
-| Airport operations | 24 h |
+| Routes | 168 h (7 days) |
+| Airport operations | 168 h (7 days) |
 
-Checking every 24 hours does not imply the provider publishes daily updates. The 24-hour interval is a maximum staleness tolerance, not a publication schedule.
+Checking on a fixed interval does not imply the provider publishes on the same schedule. The intervals are maximum staleness tolerances, not publication schedules.
 
 ## 8. Assumptions and known limitations
 
 - **`unmet demand`** is not directly published by any of these sources. It will be represented by a proxy derived from passenger growth, load factor, departures, delays, and cancellations.
-- **T-100 routes source unavailable:** The BTS T-100 Segment data has no stable programmatic download URL. `RoutesETL.extract()` raises a `RuntimeError` and records an error in `sync_state` on every run. Routes data must be loaded manually; see section 4.3.
+- **Routes data scope:** `RoutesETL` derives origin-destination pairs from the BTS Marketing Carrier On-Time Performance dataset (the same source as `AirportOperationsETL`). This covers domestic scheduled flights reported by marketing carriers only. International flights, charters, cargo-only routes, and general aviation are excluded. `passengers` and `seats` are always `NULL` in the `routes` table because the On-Time dataset does not provide those totals at the route level.
 - **On-time performance scope:** Marketing Carrier On-Time Performance covers domestic scheduled passenger flights reported by marketing carriers. International flights, charters, and general aviation are excluded.
-- **PREZIP index discovery:** `AirportOperationsETL` queries `https://transtats.bts.gov/PREZIP/` at runtime to discover which monthly files are actually published. This avoids assuming the previous calendar month is available, since BTS typically publishes with a 4–6 week lag. The PREZIP URL format itself is stable but not formally documented and could change without notice.
-- **`latest_source_period`** is populated by `AirportOperationsETL` after each successful run (format: `YYYY-MM`). It is not populated by other ETLs.
+- **PREZIP index discovery:** Both `RoutesETL` and `AirportOperationsETL` query `https://transtats.bts.gov/PREZIP/` at runtime to discover which monthly files are actually published. This avoids assuming the previous calendar month is available, since BTS typically publishes with a 4–6 week lag. The PREZIP URL format itself is stable but not formally documented and could change without notice.
+- **`latest_source_period`** is populated by `RoutesETL` and `AirportOperationsETL` after each successful run (format: `YYYY-MM`). It is not populated by `AirportMetadataETL` or `AirportTrafficETL`.
+- **MVP window:** `OPERATIONS_MONTHS_WINDOW = 1` limits both `RoutesETL` and `AirportOperationsETL` to the single most recently published month. This keeps runtime and memory low during development; increase the value in `config.py` to extend historical coverage.
 - **Long-haul threshold** (`LONG_HAUL_MILES = 2 500`) is a configurable assumption documented in `config.py`, not an official BTS classification.
 - **Local database purpose:** The database supports analytical comparison. It does not estimate construction costs or project ROI.
 - **No vector database:** All selected sources are structured and require exact filtering, aggregation, and deterministic calculations.

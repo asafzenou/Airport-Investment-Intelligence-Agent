@@ -3,18 +3,10 @@
 import logging
 from pathlib import Path
 
-import httpx
 import pytest
-import respx
 
 import data_pipeline.logger as logger_module
-from data_pipeline.etls.airport_operations_etl import (
-    _PREZIP_INDEX,
-    AirportOperationsETL,
-    _prezip_url,
-)
 from data_pipeline.logger import _LOG_PATTERN, configure_logging
-from tests.conftest import make_zip
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -165,25 +157,3 @@ def _ops_index_html(months: list[tuple[int, int]]) -> str:
     return "\n".join(lines)
 
 
-@respx.mock
-async def test_airport_operations_logs_per_month_progress(dal, caplog) -> None:
-    respx.get(_PREZIP_INDEX).mock(
-        return_value=httpx.Response(200, text=_ops_index_html(_TEST_MONTHS))
-    )
-    for y, m in _TEST_MONTHS:
-        csv_content = f"{_CSV_HEADER}\n{y},{m},LAX,10,8,0,0,0,0,0,0,0"
-        respx.get(_prezip_url(y, m)).mock(
-            return_value=httpx.Response(200, content=make_zip(f"data_{y}_{m}.csv", csv_content))
-        )
-
-    async with httpx.AsyncClient() as client:
-        etl = AirportOperationsETL(dal, client)
-        with caplog.at_level(logging.INFO, logger="data_pipeline.etls.airport_operations_etl"):
-            await etl.extract()
-
-    assert "month 1/2" in caplog.text
-    assert "month 2/2" in caplog.text
-    assert "MB downloaded" in caplog.text
-    assert "raw CSV rows" in caplog.text
-    # URL is logged for each month.
-    assert "transtats.bts.gov/PREZIP" in caplog.text

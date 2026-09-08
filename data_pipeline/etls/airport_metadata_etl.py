@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 
-from data_pipeline.config import REFRESH_HOURS
+from data_pipeline.config import NEW_ENGLAND_STATES, REFRESH_HOURS
 from data_pipeline.dal.aviation_dal import AviationDAL
 
 log = logging.getLogger(__name__)
@@ -27,8 +27,6 @@ FIELDS = (
     "LAT_DECIMAL,LONG_DECIMAL,EFF_DATE"
 )
 PAGE_SIZE = 1_000
-
-NEW_ENGLAND_STATES = {"CT", "ME", "MA", "NH", "RI", "VT"}
 
 
 def _region(state_code: str | None) -> str | None:

@@ -41,3 +41,22 @@ OPERATIONS_MONTHS_WINDOW: int = 1
 # Used for the Anchorage long-haul percentage calculation.
 # Documented assumption – not an official BTS classification.
 LONG_HAUL_MILES: float = 2_500.0
+
+# US Census Bureau New England division states.
+NEW_ENGLAND_STATES: frozenset[str] = frozenset(
+    {"CT", "ME", "MA", "NH", "RI", "VT"}
+)
+
+# ------------------------------------------------------------------
+# Terminal-expansion scoring
+# ------------------------------------------------------------------
+
+# Weights for the deterministic expansion-score composite.
+# Must sum to 1.0.
+EXPANSION_SCORE_WEIGHTS: dict[str, float] = {
+    "passenger_growth": 0.35,
+    "load_factor": 0.25,
+    "departure_growth": 0.20,
+    "delay_rate": 0.15,
+    "cancellation_rate": 0.05,
+}
