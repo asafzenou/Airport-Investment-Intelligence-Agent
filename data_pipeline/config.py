@@ -27,10 +27,10 @@ REFRESH_HOURS: dict[str, float] = {
 # ------------------------------------------------------------------
 
 # Number of months of T-100 traffic history to keep locally
-TRAFFIC_MONTHS_WINDOW: int = 36
+TRAFFIC_MONTHS_WINDOW: int = 1
 
 # Number of months of on-time performance history to keep locally
-OPERATIONS_MONTHS_WINDOW: int = 12
+OPERATIONS_MONTHS_WINDOW: int = 1
 
 # ------------------------------------------------------------------
 # Business thresholds

@@ -1,59 +1,46 @@
 """Origin-destination routes ETL.
 
-Source: BTS TranStats T-100 Segment (All Carriers).
+Source: BTS TranStats Marketing Carrier On-Time Performance (from Jan 2018).
+Access: BTS PREZIP monthly bulk download (ZIP containing a CSV) — the same
+source used by AirportOperationsETL.
 
-KNOWN LIMITATION: BTS does not expose a reliable, stable programmatic
-endpoint for T-100 Segment data.
+SCOPE LIMITATION:
+    Routes represent domestic scheduled flights reported in the BTS Marketing
+    Carrier On-Time Performance dataset.  International, charter, cargo-only,
+    and general-aviation routes are excluded.  Therefore, long-haul percentages
+    are percentages within this reported domestic-flight scope.
 
-The PREZIP directory contains T-100 files only under opaque numeric IDs
-(e.g. T_T100_SEGMENT_893734.zip) and those files are missing the YEAR,
-CLASS, PASSENGERS, and DISTANCE columns that the schema requires.  There
-is no Socrata dataset for T-100 OD pairs on data.bts.gov.
+The PREZIP directory is queried at runtime to discover which months are
+actually published.  The OPERATIONS_MONTHS_WINDOW most recently published
+months are loaded.
 
-The official source is the BTS download form at:
-    https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FMG
+Aggregation:
+    Each CSV row represents one flight leg.  Rows are grouped by
+    (Origin, Dest, Year, Month).  scheduled_departures is incremented for
+    every row; performed_departures is incremented when Cancelled != 1.
+    The Distance field supplies distance_miles.
 
-That form requires a multi-step ASP.NET ViewState postback sequence that
-is not reliably automatable.  Rather than ship brittle web-scraping code,
-this ETL records a clear error in sync_state on every run.
-
-To load routes data manually:
-1. Visit the URL above.
-2. Select fields: YEAR, MONTH, ORIGIN, DEST, DISTANCE,
-   DEPARTURES_SCHEDULED, DEPARTURES_PERFORMED, PASSENGERS, SEATS, CLASS.
-3. Download the ZIP for the desired year.
-4. Unzip and place the CSV at a known path.
-5. Load it via the CLI (not yet implemented).
-
-Aggregation logic (for when data becomes available):
-- Only rows with CLASS = 'F' (scheduled passenger service) are retained.
-- Rows are summed across carriers and aircraft types into one row per
-  (ORIGIN, DEST, YEAR, MONTH).
+    The On-Time dataset does not contain passenger or seat totals.
+    passengers and seats are stored as NULL.
 
 Long-haul definition for Anchorage queries:
     distance_miles >= LONG_HAUL_MILES (see data_pipeline/config.py).
 """
 
+import csv
+import io
 import logging
+import time
+import zipfile
 from typing import Any
 
 import httpx
 
-from data_pipeline.config import REFRESH_HOURS
+from data_pipeline.config import OPERATIONS_MONTHS_WINDOW, REFRESH_HOURS
 from data_pipeline.dal.aviation_dal import AviationDAL
+from data_pipeline.etls.airport_operations_etl import _available_months, _prezip_url
 
 log = logging.getLogger(__name__)
-
-_SCHEDULED_PASSENGER_CLASS = "F"
-
-_SOURCE_UNAVAILABLE = (
-    "T-100 Segment data cannot be downloaded automatically.  "
-    "The BTS PREZIP directory does not contain year-specific T-100 segment files "
-    "with the required columns (YEAR, CLASS, PASSENGERS, DISTANCE).  "
-    "The official source at transtats.bts.gov/DL_SelectFields.aspx requires a "
-    "multi-step ASP.NET form submission that cannot be reliably automated.  "
-    "Load routes data manually — see the module docstring for instructions."
-)
 
 
 class RoutesETL:
@@ -62,29 +49,59 @@ class RoutesETL:
     def __init__(self, dal: AviationDAL, client: httpx.AsyncClient) -> None:
         self._dal = dal
         self._client = client
+        self._latest_period: str | None = None
 
     async def extract(self) -> list[dict[str, Any]]:
-        raise RuntimeError(_SOURCE_UNAVAILABLE)
+        months = await _available_months(self._client)
+        if not months:
+            raise ValueError("No marketing-carrier on-time files found in PREZIP index")
+        selected = months[:OPERATIONS_MONTHS_WINDOW]
+        self._latest_period = f"{selected[0][0]}-{selected[0][1]:02d}"
+        total = len(selected)
+        records: list[dict[str, Any]] = []
+        for i, (year, month) in enumerate(selected, 1):
+            url = _prezip_url(year, month)
+            log.info("routes: month %d/%d — %d-%02d  %s", i, total, year, month, url)
+            resp = await self._client.get(url, follow_redirects=True)
+            resp.raise_for_status()
+            size_mb = len(resp.content) / 1_048_576
+            if resp.content[:2] != b"PK":
+                raise ValueError(f"Response from {url} is not a ZIP file")
+            with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+                csv_name = next(
+                    (n for n in zf.namelist() if n.upper().endswith(".CSV")),
+                    None,
+                )
+                if csv_name is None:
+                    raise ValueError(
+                        f"No CSV found inside {url}; archive contained: {zf.namelist()}"
+                    )
+                with zf.open(csv_name) as raw_file:
+                    reader = csv.DictReader(io.TextIOWrapper(raw_file, encoding="utf-8-sig"))
+                    month_records = [dict(r) for r in reader]
+            log.info(
+                "routes:   %.2f MB downloaded, %d raw CSV rows",
+                size_mb, len(month_records),
+            )
+            records.extend(month_records)
+        return records
 
     def transform(self, raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
         agg: dict[tuple[str, str, int, int], dict[str, Any]] = {}
 
         for item in raw:
-            if (item.get("CLASS") or "").strip().upper() != _SCHEDULED_PASSENGER_CLASS:
-                continue
-            origin = (item.get("ORIGIN") or "").strip()
-            dest = (item.get("DEST") or "").strip()
+            origin = (item.get("Origin") or "").strip()
+            dest = (item.get("Dest") or "").strip()
             if not origin or not dest:
                 continue
             try:
-                year = int(item["YEAR"])
-                month = int(item["MONTH"])
-                distance = float(item.get("DISTANCE") or 0)
-                sched = int(float(item.get("DEPARTURES_SCHEDULED") or 0))
-                perf = int(float(item.get("DEPARTURES_PERFORMED") or 0))
-                pax = int(float(item.get("PASSENGERS") or 0))
-                seats = int(float(item.get("SEATS") or 0))
-            except (ValueError, KeyError, TypeError):
+                year = int(item.get("Year") or 0)
+                month = int(item.get("Month") or 0)
+                distance = float(item.get("Distance") or 0)
+                cancelled = float(item.get("Cancelled") or 0)
+            except (ValueError, TypeError):
+                continue
+            if not year or not month:
                 continue
 
             key = (origin, dest, year, month)
@@ -97,14 +114,13 @@ class RoutesETL:
                     "distance_miles": distance,
                     "scheduled_departures": 0,
                     "performed_departures": 0,
-                    "passengers": 0,
-                    "seats": 0,
+                    "passengers": None,
+                    "seats": None,
                 }
             entry = agg[key]
-            entry["scheduled_departures"] += sched
-            entry["performed_departures"] += perf
-            entry["passengers"] += pax
-            entry["seats"] += seats
+            entry["scheduled_departures"] += 1
+            if cancelled != 1:
+                entry["performed_departures"] += 1
             if entry["distance_miles"] == 0 and distance > 0:
                 entry["distance_miles"] = distance
 
@@ -117,14 +133,26 @@ class RoutesETL:
         if not self._dal.needs_refresh(self.DATASET_NAME, REFRESH_HOURS[self.DATASET_NAME]):
             log.info("%s is fresh, skipping.", self.DATASET_NAME)
             return
+        log.info("Starting %s ETL.", self.DATASET_NAME)
+        t0 = time.monotonic()
         try:
             raw = await self.extract()
             rows = self.transform(raw)
             count = self.load(rows)
-            self._dal.update_sync_state(self.DATASET_NAME, status="success", rows_loaded=count)
-            log.info("Loaded %d rows for %s", count, self.DATASET_NAME)
+            elapsed = time.monotonic() - t0
+            self._dal.update_sync_state(
+                self.DATASET_NAME,
+                status="success",
+                rows_loaded=count,
+                latest_source_period=self._latest_period,
+            )
+            log.info(
+                "%s ETL completed: extracted=%d aggregated=%d stored=%d latest=%s (%.1fs).",
+                self.DATASET_NAME, len(raw), len(rows), count, self._latest_period, elapsed,
+            )
         except Exception as exc:  # noqa: BLE001
-            log.error("ETL failed for %s: %s", self.DATASET_NAME, exc)
+            elapsed = time.monotonic() - t0
+            log.exception("ETL failed for %s after %.1fs: %s", self.DATASET_NAME, elapsed, exc)
             self._dal.update_sync_state(
                 self.DATASET_NAME, status="error", error_message=str(exc)
             )

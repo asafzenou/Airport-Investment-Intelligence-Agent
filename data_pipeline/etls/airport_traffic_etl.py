@@ -9,6 +9,7 @@ is smaller than PAGE_SIZE.
 """
 
 import logging
+import time
 from datetime import date
 from typing import Any
 
@@ -128,14 +129,21 @@ class AirportTrafficETL:
         if not self._dal.needs_refresh(self.DATASET_NAME, REFRESH_HOURS[self.DATASET_NAME]):
             log.info("%s is fresh, skipping.", self.DATASET_NAME)
             return
+        log.info("Starting %s ETL.", self.DATASET_NAME)
+        t0 = time.monotonic()
         try:
             raw = await self.extract()
             rows = self.transform(raw)
             count = self.load(rows)
+            elapsed = time.monotonic() - t0
             self._dal.update_sync_state(self.DATASET_NAME, status="success", rows_loaded=count)
-            log.info("Loaded %d rows for %s", count, self.DATASET_NAME)
+            log.info(
+                "%s ETL completed: extracted=%d transformed=%d stored=%d (%.1fs).",
+                self.DATASET_NAME, len(raw), len(rows), count, elapsed,
+            )
         except Exception as exc:  # noqa: BLE001
-            log.error("ETL failed for %s: %s", self.DATASET_NAME, exc)
+            elapsed = time.monotonic() - t0
+            log.exception("ETL failed for %s after %.1fs: %s", self.DATASET_NAME, elapsed, exc)
             self._dal.update_sync_state(
                 self.DATASET_NAME, status="error", error_message=str(exc)
             )
