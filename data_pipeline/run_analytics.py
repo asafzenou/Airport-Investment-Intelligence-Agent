@@ -14,7 +14,7 @@ from data_pipeline.analytics.service import AnalyticsService
 from data_pipeline.config import DB_PATH
 from data_pipeline.dal.aviation_dal import AviationDAL
 from data_pipeline.data_handlers.sqlite_handler import SQLiteHandler
-from data_pipeline.logger import configure_logging
+from logger import configure_logging
 
 
 def main() -> None:

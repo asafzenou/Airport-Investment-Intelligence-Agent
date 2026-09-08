@@ -23,7 +23,7 @@ from data_pipeline.etls.airport_metadata_etl import AirportMetadataETL
 from data_pipeline.etls.airport_operations_etl import AirportOperationsETL
 from data_pipeline.etls.airport_traffic_etl import AirportTrafficETL
 from data_pipeline.etls.routes_etl import RoutesETL
-from data_pipeline.logger import configure_logging
+from logger import configure_logging
 
 log = logging.getLogger(__name__)
 

@@ -1,4 +1,4 @@
-"""Centralized logging configuration for the data pipeline.
+"""Shared logging configuration for the entire project.
 
 Call configure_logging() once at startup (or let run_pipeline() do it).
 Safe to call multiple times — handlers are added only once per session.
@@ -9,7 +9,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-_LOGS_DIR = Path(__file__).parent.parent.parent / "logs"
+_LOGS_DIR = Path(__file__).parent.parent / "logs"
 _LOG_PREFIX = "data_pipeline_"
 _LOG_PATTERN = re.compile(r"^data_pipeline_\d{8}_\d{6}\.log$")
 _MAX_LOG_FILES = 2

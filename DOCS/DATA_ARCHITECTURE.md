@@ -24,14 +24,15 @@ data_pipeline/
 │   └── aviation_dal.py
 ├── data_handlers/
 │   └── sqlite_handler.py
-├── etls/
-│   ├── _http_retry.py
-│   ├── airport_metadata_etl.py
-│   ├── airport_traffic_etl.py
-│   ├── routes_etl.py
-│   └── airport_operations_etl.py
-└── logger/
-    └── __init__.py
+└── etls/
+    ├── _http_retry.py
+    ├── airport_metadata_etl.py
+    ├── airport_traffic_etl.py
+    ├── routes_etl.py
+    └── airport_operations_etl.py
+
+logger/
+└── __init__.py
 
 storage/
 └── aviation.db
@@ -102,7 +103,7 @@ Manages connections and SQL execution. Contains no aviation or BTS concepts.
 
 ### `logger/__init__.py`
 
-Centralised logging configuration. Call `configure_logging()` once at startup (or let `run_pipeline()` do it). Safe to call multiple times — handlers are added only once per session.
+Shared project-level logging configuration, imported with `from logger import configure_logging`. Call `configure_logging()` once at startup (or let `run_pipeline()` do it). Safe to call multiple times — handlers are added only once per session.
 
 - Attaches a `StreamHandler` (console) and a timestamped `FileHandler` under `logs/`.
 - Keeps at most two `data_pipeline_*.log` files; older ones are deleted automatically.

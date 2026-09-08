@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-import data_pipeline.logger as logger_module
-from data_pipeline.logger import _LOG_PATTERN, configure_logging
+import logger as logger_module
+from logger import _LOG_PATTERN, configure_logging
 
 # ---------------------------------------------------------------------------
 # Fixtures
