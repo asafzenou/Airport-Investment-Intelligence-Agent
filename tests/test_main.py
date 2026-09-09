@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import main
-from agent.service import AgentError
+from airport_agent.service import AgentError
 from data_pipeline.config import DB_PATH
 
 # ── helpers ───────────────────────────────────────────────────────────────────

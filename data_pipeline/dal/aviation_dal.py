@@ -200,17 +200,33 @@ class AviationDAL:
         """Expose an atomic multi-statement SQLite transaction."""
         return self._db.transaction()
 
-    def get_expansion_scores(self, limit: int) -> list[dict[str, Any]]:
-        """Read the stored ranking, followed by unrankable airports."""
+    def get_expansion_scores(self, limit: int) -> dict[str, Any]:
+        """Return top-N ranked airports and all excluded airports as separate lists.
+
+        ranked_airports       — up to `limit` rankable airports ordered by rank_position.
+        rankable_airport_count — total rankable airports before the limit is applied.
+        excluded_airports     — airports that had enough passengers but lacked a required
+                                metric and therefore received no rank.
+        """
         if type(limit) is not int or not 1 <= limit <= 10:
             raise ValueError("limit must be an integer between 1 and 10.")
-        rows = self._db.fetchall(
-            "SELECT * FROM analytics_expansion_scores "
-            "ORDER BY CASE WHEN is_rankable = 1 THEN 0 ELSE 1 END, "
-            "CASE WHEN is_rankable = 1 THEN rank_position END ASC, airport_code ASC LIMIT ?",
+        ranked = self._db.fetchall(
+            "SELECT * FROM analytics_expansion_scores WHERE is_rankable = 1 "
+            "ORDER BY rank_position ASC, airport_code ASC LIMIT ?",
             (limit,),
         )
-        return [dict(row) for row in rows]
+        count_row = self._db.fetchone(
+            "SELECT COUNT(*) AS cnt FROM analytics_expansion_scores WHERE is_rankable = 1",
+        )
+        excluded = self._db.fetchall(
+            "SELECT * FROM analytics_expansion_scores WHERE is_rankable = 0 "
+            "ORDER BY airport_code ASC",
+        )
+        return {
+            "ranked_airports": [dict(r) for r in ranked],
+            "rankable_airport_count": count_row["cnt"] if count_row else 0,
+            "excluded_airports": [dict(r) for r in excluded],
+        }
 
     def get_congestion_comparison(self) -> list[dict[str, Any]]:
         rows = self._db.fetchall(

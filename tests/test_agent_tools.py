@@ -5,7 +5,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from agent.tools import TOOL_SCHEMAS, AgentTools
+from airport_agent.tools import TOOL_SCHEMAS, AgentTools
 
 CASES = [
     ("get_new_england_expansion_ranking", "get_expansion_scores",
@@ -38,9 +38,12 @@ def insert_result(db, table, code, **values):
 def test_dal_and_tool_preserve_all_fields_read_only(
     tmp_db, dal, monkeypatch, name, method, table, code, analysis,
 ):
-    values = {"comparison_key": "LAX_SNA"} if table == "analytics_congestion" else {}
-    expected = insert_result(tmp_db, table, code, **values)
-    if table != "analytics_expansion_scores":
+    if method == "get_expansion_scores":
+        # Force is_rankable=1 so the row lands in ranked_airports under the new split query.
+        expected = insert_result(tmp_db, table, code, is_rankable=1, rank_position=1)
+    else:
+        values = {"comparison_key": "LAX_SNA"} if table == "analytics_congestion" else {}
+        expected = insert_result(tmp_db, table, code, **values)
         other = {"comparison_key": "JFK_LGA"} if values else {}
         insert_result(tmp_db, table, "JFK", **other)
 
@@ -54,13 +57,21 @@ def test_dal_and_tool_preserve_all_fields_read_only(
 
     monkeypatch.setattr(tmp_db, "_connect", read_only_connect)
     args = {"limit": 5} if method == "get_expansion_scores" else {}
-    expected_data = [expected] if method in (
-        "get_expansion_scores", "get_congestion_comparison",
-    ) else expected
-    assert getattr(dal, method)(**args) == expected_data
-    assert AgentTools(dal).execute(name, args) == {
-        "status": "ok", "analysis_type": analysis, "data": expected_data,
-    }
+
+    if method == "get_expansion_scores":
+        dal_result = getattr(dal, method)(**args)
+        assert dal_result["ranked_airports"] == [expected]
+        assert dal_result["rankable_airport_count"] == 1
+        assert dal_result["excluded_airports"] == []
+        assert AgentTools(dal).execute(name, args) == {
+            "status": "ok", "analysis_type": analysis, "data": dal_result,
+        }
+    else:
+        expected_data = [expected] if method == "get_congestion_comparison" else expected
+        assert getattr(dal, method)(**args) == expected_data
+        assert AgentTools(dal).execute(name, args) == {
+            "status": "ok", "analysis_type": analysis, "data": expected_data,
+        }
 
 
 def test_ranking_order_and_limit(tmp_db, dal):
@@ -69,14 +80,20 @@ def test_ranking_order_and_limit(tmp_db, dal):
         insert_result(tmp_db, "analytics_expansion_scores", code,
                       rank_position=rank, is_rankable=rankable,
                       expansion_score=10 if rankable else None)
-    assert [r["airport_code"] for r in dal.get_expansion_scores(10)] == [
-        "PVD", "BOS", "AAA", "ZZZ",
-    ]
+
+    result_all = dal.get_expansion_scores(10)
+    assert [r["airport_code"] for r in result_all["ranked_airports"]] == ["PVD", "BOS"]
+    assert result_all["rankable_airport_count"] == 2
+    assert [r["airport_code"] for r in result_all["excluded_airports"]] == ["AAA", "ZZZ"]
+
     tools = AgentTools(dal)
     for limit in (1, 2, 3, 10):
         data = tools.get_new_england_expansion_ranking(limit)["data"]
-        assert data == dal.get_expansion_scores(10)[:limit]
-    assert tools.get_new_england_expansion_ranking(10)["data"][-1]["expansion_score"] is None
+        assert data["ranked_airports"] == result_all["ranked_airports"][:limit]
+        assert data["excluded_airports"] == result_all["excluded_airports"]
+
+    for airport in result_all["excluded_airports"]:
+        assert airport["expansion_score"] is None
 
 
 def test_congestion_order(tmp_db, dal):
@@ -115,11 +132,35 @@ def test_tool_schemas_and_argument_boundaries(dal):
     assert tools.execute("execute_sql", {})["error_code"] == "UNKNOWN_TOOL"
 
 
+def test_excluded_airports_are_returned_separately(tmp_db, dal):
+    """Unrankable airports appear in excluded_airports with no score."""
+    insert_result(tmp_db, "analytics_expansion_scores", "BOS",
+                  rank_position=1, is_rankable=1, expansion_score=75.0)
+    insert_result(tmp_db, "analytics_expansion_scores", "PVD",
+                  rank_position=None, is_rankable=0, expansion_score=None)
+
+    result = dal.get_expansion_scores(5)
+    assert [r["airport_code"] for r in result["ranked_airports"]] == ["BOS"]
+    assert result["rankable_airport_count"] == 1
+    assert [r["airport_code"] for r in result["excluded_airports"]] == ["PVD"]
+    assert result["excluded_airports"][0]["expansion_score"] is None
+
+    tool_data = AgentTools(dal).get_new_england_expansion_ranking(5)["data"]
+    assert tool_data["ranked_airports"] == result["ranked_airports"]
+    assert tool_data["rankable_airport_count"] == 1
+    assert tool_data["excluded_airports"] == result["excluded_airports"]
+
+
 def test_sqlite_failure_is_safe(dal, monkeypatch):
-    def fail():
+    def fail(*_args, **_kwargs):
         raise sqlite3.OperationalError("private database details")
 
     monkeypatch.setattr(dal, "get_long_haul_analysis", fail)
     result = AgentTools(dal).get_anc_long_haul_percentage()
+    assert result["error_code"] == "DATABASE_ERROR"
+    assert "private" not in str(result)
+
+    monkeypatch.setattr(dal, "get_expansion_scores", fail)
+    result = AgentTools(dal).get_new_england_expansion_ranking(5)
     assert result["error_code"] == "DATABASE_ERROR"
     assert "private" not in str(result)

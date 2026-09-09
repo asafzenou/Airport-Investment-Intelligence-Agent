@@ -4,8 +4,8 @@ import sqlite3
 
 import streamlit as st
 
-from agent.service import AgentError, AgentService
-from agent.tools import AgentTools
+from airport_agent.service import AgentError, AgentService
+from airport_agent.tools import AgentTools
 from data_pipeline.config import DB_PATH
 from data_pipeline.dal.aviation_dal import AviationDAL
 from data_pipeline.data_handlers.sqlite_handler import SQLiteHandler

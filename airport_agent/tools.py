@@ -76,9 +76,16 @@ class AgentTools:
     def get_new_england_expansion_ranking(self, limit: int = 5) -> dict[str, Any]:
         if type(limit) is not int or not 1 <= limit <= 10:
             return tool_error("INVALID_ARGUMENT", "limit must be an integer between 1 and 10.")
-        return self._read(
-            "new_england_expansion_ranking", lambda: self._dal.get_expansion_scores(limit),
-        )
+        try:
+            data = self._dal.get_expansion_scores(limit)
+        except sqlite3.Error:
+            return tool_error("DATABASE_ERROR", "Cannot read analytics. Check the SQLite database.")
+        if not data["ranked_airports"] and not data["excluded_airports"]:
+            return tool_error(
+                "ANALYTICS_NOT_AVAILABLE",
+                "No stored analytics result is available. Run the analytics command first.",
+            )
+        return {"status": "ok", "analysis_type": "new_england_expansion_ranking", "data": data}
 
     def get_lax_sna_congestion_comparison(self) -> dict[str, Any]:
         return self._read("lax_sna_congestion", self._dal.get_congestion_comparison)

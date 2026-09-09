@@ -2,8 +2,8 @@ import asyncio
 import os
 import sys
 
-from agent.service import AgentError, AgentService
-from agent.tools import AgentTools
+from airport_agent.service import AgentError, AgentService
+from airport_agent.tools import AgentTools
 from data_pipeline.analytics.service import AnalyticsService
 from data_pipeline.config import DB_PATH, REFRESH_HOURS
 from data_pipeline.dal.aviation_dal import AviationDAL

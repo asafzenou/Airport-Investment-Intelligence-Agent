@@ -74,11 +74,13 @@ The existing `AviationDAL` exposes source-table reads used by `AnalyticsService`
 Add only this small layer:
 
 ```
-agent/
+airport_agent/
 ├── __init__.py
-├── prompts.py
 ├── service.py
 └── tools.py
+
+agents/
+└── airport-agent.md
 
 streamlit_app.py
 
@@ -89,11 +91,13 @@ tests/
 
 | File | Responsibility |
 | --- | --- |
-| `agent/tools.py` | Tool definitions, argument validation, and calls to `AviationDAL` |
-| `agent/service.py` | OpenAI Responses API call and bounded tool-calling loop |
-| `agent/prompts.py` | Short agent instructions and scope rules |
+| `airport_agent/tools.py` | Tool definitions, argument validation, and calls to `AviationDAL` |
+| `airport_agent/service.py` | OpenAI Responses API call and bounded tool-calling loop |
+| `agents/airport-agent.md` | OpenAI system instructions loaded by `AgentService` at initialisation |
 | `streamlit_app.py` | Chat UI and session-scoped conversation history |
 | `aviation_dal.py` | Fixed SQL reads for the four analytics tables |
+
+`AgentService` loads `agents/airport-agent.md` once during `__init__` using `pathlib.Path`, resolved relative to the repository root. If the file is missing or empty, it raises `AgentError` with a safe user-facing message. The loaded text is stored on `self._instructions` and passed to the OpenAI Responses API on every call. There is no Python constant containing the system prompt.
 
 Do not add FastAPI, an ORM, LangChain, a vector database, a repository layer, or multiple agent classes.
 
@@ -247,7 +251,7 @@ Add `openai` and `streamlit` as project dependencies. Model selection stays conf
 2. `AgentService` calls the OpenAI Responses API with the four tool definitions.
 3. If the model requests a tool, the service verifies its name against a fixed registry.
 4. The service parses and validates the JSON arguments.
-5. The matching function in `agent/tools.py` reads through `AviationDAL`.
+5. The matching function in `airport_agent/tools.py` reads through `AviationDAL`.
 6. The structured result is sent back to the model as tool output.
 7. The model produces the final analyst-facing answer.
 8. The final answer is stored in Streamlit session state.
@@ -360,7 +364,7 @@ implementation. No package was moved.
 In the reviewed clone, normal `uv run pytest` fails before test collection because `uv_build` expects:
 
 ```
-src/airport_investment_intelligence_agent/__init__.py
+src/airport_investment_intelligence_airport_agent/__init__.py
 ```
 
 The actual package is root-level `data_pipeline/`. Correct the build configuration with the smallest change consistent with this flat layout before adding agent dependencies.

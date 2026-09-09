@@ -18,7 +18,7 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-root = ""
-module-name = ["data_pipeline", "agent", "logger"]
+module-name = ["data_pipeline", "airport_agent", "logger"]
 
 [dependency-groups]
 dev = [

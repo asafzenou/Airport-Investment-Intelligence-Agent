@@ -2,6 +2,7 @@
 
 import json
 import os
+from pathlib import Path
 
 from openai import (
     APIConnectionError,
@@ -12,8 +13,23 @@ from openai import (
     RateLimitError,
 )
 
-from agent.prompts import INSTRUCTIONS
-from agent.tools import TOOL_SCHEMAS, AgentTools, tool_error
+from airport_agent.tools import TOOL_SCHEMAS, AgentTools, tool_error
+
+_PROMPT_PATH = Path(__file__).parent.parent / "agents" / "airport-agent.md"
+
+
+def _load_instructions() -> str:
+    try:
+        text = _PROMPT_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        raise AgentError(
+            "Agent prompt file is missing or unreadable. Check agents/airport-agent.md."
+        )
+    if not text:
+        raise AgentError(
+            "Agent prompt file is empty. Check agents/airport-agent.md."
+        )
+    return text
 
 
 class AgentError(Exception):
@@ -31,6 +47,7 @@ class AgentService:
             client = OpenAI(timeout=60.0, max_retries=0)
         self._client = client
         self._tools = tools
+        self._instructions = _load_instructions()
 
     def respond(self, message: str, history: list[dict[str, str]]) -> str:
         """History contains only prior user/assistant text, excluding the new message."""
@@ -49,7 +66,7 @@ class AgentService:
             try:
                 response = self._client.responses.create(
                     model=self.model,
-                    instructions=INSTRUCTIONS,
+                    instructions=self._instructions,
                     input=list(items),
                     tools=TOOL_SCHEMAS,
                     store=False,
