@@ -2,6 +2,27 @@
 
 > Repository-verified design based on commit `c16a7f7` (`Analytics setup`).
 
+## End-to-End Flow (`main.py`)
+
+```
+main.py
+  → validate_environment()          # check OPENAI_API_KEY, OPENAI_MODEL
+  → asyncio.run(run_pipeline(DB_PATH))  # ingest aviation data into SQLite
+  → AnalyticsService.run_all()      # calculate and store deterministic results
+  → AgentService                    # initialise OpenAI client + tool registry
+  → interactive terminal chat       # read/print loop over stdin
+```
+
+`main.py` owns orchestration only. It delegates ingestion to the existing ETL
+coordinator, analytics to `AnalyticsService`, and conversation to
+`AgentService`. A single shared `AviationDAL` instance is passed to both
+`AnalyticsService` and `AgentTools` so they read from the same database handle.
+
+The Streamlit entrypoint (`streamlit_app.py`) skips ingestion and analytics and
+reads the stored snapshot directly.
+
+---
+
 ## 1. Purpose
 
 The AI agent provides a conversational interface over the deterministic airport analytics already stored in SQLite.
