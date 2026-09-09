@@ -53,8 +53,9 @@ pipeline stages without going through the full startup.
 
 Other airports, regions, custom periods, ROI projections and forecasts are not
 implemented. Traffic requests cover 36 months; operations and routes load the
-three most recently published months. The actual periods available are discovered
-at runtime from the BTS PREZIP index and displayed in the sidebar. Missing inputs
+three most recently published months, discovered through the BTS PREZIP index.
+Traffic comes from the T-100 source; its actual stored period is displayed
+dynamically in the sidebar. Missing inputs
 produce null scores. Answers should disclose the stored period, scope and material
 limitations, including project assumptions. See [Analytics Design](DOCS/ANALYTICS_DESIGN.md)
 for formulas and [Agent Design](DOCS/AGENT_DESIGN.md) for the conversational layer.

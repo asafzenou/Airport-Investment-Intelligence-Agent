@@ -383,32 +383,6 @@ Run the four assignment questions in Streamlit and compare every numeric claim d
 
 The model must preserve the period, `data_scope`, and `limitations` stored with each result.
 
-## 17. Repository Issue Before Implementation
-
-Implementation verification: the initial existing environment passed all 116
-tests. Adding dependencies triggered a fresh build and reproduced the error
-below, including on a subsequent `uv run pytest`. The build configuration now
-uses `module-root = ""` and includes both root-level packages, `data_pipeline`
-and `agent`. The original 116 tests passed after the layout fix, before agent
-implementation. No package was moved.
-
-In the reviewed clone, normal `uv run pytest` fails before test collection because `uv_build` expects:
-
-```
-src/airport_investment_intelligence_airport_agent/__init__.py
-```
-
-The actual package is root-level `data_pipeline/`. Correct the build configuration with the smallest change consistent with this flat layout before adding agent dependencies.
-
-This packaging issue is separate from analytics behavior. With project installation bypassed, verification produced:
-
-```
-116 passed
-Ruff: All checks passed
-```
-
-Initial test failures in the review environment came from an injected SOCKS proxy without optional `socksio`. Removing those environment proxy variables allowed the full mocked suite to pass; this is not a repository defect.
-
 ## 18. Key Tradeoffs
 
 ### Four fixed tools instead of generic queries

@@ -476,7 +476,7 @@ Checking on a fixed interval does not imply the provider publishes on the same s
 
 ## 8. Assumptions and known limitations
 
-- **`unmet demand`** is not directly published by any of these sources. It will be represented by a proxy derived from passenger growth, load factor, departures, delays, and cancellations.
+- **`unmet demand`** is not directly published by any of these sources. It is represented by a proxy derived from passenger growth, load factor, departures, delays, and cancellations.
 - **Routes data scope:** `RoutesETL` derives origin-destination pairs from the BTS Marketing Carrier On-Time Performance dataset (the same source as `AirportOperationsETL`). This covers domestic scheduled flights reported by marketing carriers only. International flights, charters, cargo-only routes, and general aviation are excluded. `passengers` and `seats` are always `NULL` in the `routes` table because the On-Time dataset does not provide those totals at the route level.
 - **On-time performance scope:** Marketing Carrier On-Time Performance covers domestic scheduled passenger flights reported by marketing carriers. International flights, charters, and general aviation are excluded.
 - **PREZIP index discovery:** Both `RoutesETL` and `AirportOperationsETL` query `https://transtats.bts.gov/PREZIP/` at runtime to discover which monthly files are actually published. This avoids assuming the previous calendar month is available, since BTS typically publishes with a 4–6 week lag. The PREZIP URL format itself is stable but not formally documented and could change without notice.

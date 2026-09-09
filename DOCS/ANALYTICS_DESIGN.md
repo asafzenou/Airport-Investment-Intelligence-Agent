@@ -505,7 +505,7 @@ score is `NULL`; the system returns the available raw metrics and the
 
 ## 9. Analytics Execution Flow
 
-The implementation should expose one simple analytics service with four public
+The implementation exposes one simple analytics service with four public
 methods and one coordinator:
 
 ```
