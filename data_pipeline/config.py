@@ -30,8 +30,8 @@ REFRESH_HOURS: dict[str, float] = {
 TRAFFIC_MONTHS_WINDOW: int = 36
 
 # Number of recent BTS On-Time months fetched for operations and routes.
-# Kept at 1 for the MVP to limit runtime and memory consumption.
-OPERATIONS_MONTHS_WINDOW: int = 1
+# Processed one month at a time to bound peak memory.
+OPERATIONS_MONTHS_WINDOW: int = 3
 
 # Months in each rolling analysis window (§3.2).
 ANALYSIS_WINDOW_MONTHS: int = 12

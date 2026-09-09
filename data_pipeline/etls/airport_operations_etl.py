@@ -83,42 +83,33 @@ class AirportOperationsETL:
         self._client = client
         self._latest_period: str | None = None
 
-    async def extract(self) -> list[dict[str, Any]]:
-        months = await _available_months(self._client)
-        if not months:
-            raise ValueError("No marketing-carrier on-time files found in PREZIP index")
-        selected = months[:OPERATIONS_MONTHS_WINDOW]
-        self._latest_period = f"{selected[0][0]}-{selected[0][1]:02d}"
-        total = len(selected)
-        records: list[dict[str, Any]] = []
-        for i, (year, month) in enumerate(selected, 1):
-            url = _prezip_url(year, month)
-            log.info(
-                "airport_operations: month %d/%d — %d-%02d  %s",
-                i, total, year, month, url,
+    async def extract(self, year: int, month: int, i: int, total: int) -> list[dict[str, Any]]:
+        url = _prezip_url(year, month)
+        log.info(
+            "airport_operations: month %d/%d — %d-%02d  %s",
+            i, total, year, month, url,
+        )
+        resp = await get_with_retry(self._client, url, follow_redirects=True)
+        resp.raise_for_status()
+        size_mb = len(resp.content) / 1_048_576
+        if resp.content[:2] != b"PK":
+            raise ValueError(f"Response from {url} is not a ZIP file")
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            csv_name = next(
+                (n for n in zf.namelist() if n.upper().endswith(".CSV")),
+                None,
             )
-            resp = await get_with_retry(self._client, url, follow_redirects=True)
-            resp.raise_for_status()
-            size_mb = len(resp.content) / 1_048_576
-            if resp.content[:2] != b"PK":
-                raise ValueError(f"Response from {url} is not a ZIP file")
-            with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
-                csv_name = next(
-                    (n for n in zf.namelist() if n.upper().endswith(".CSV")),
-                    None,
+            if csv_name is None:
+                raise ValueError(
+                    f"No CSV found inside {url}; archive contained: {zf.namelist()}"
                 )
-                if csv_name is None:
-                    raise ValueError(
-                        f"No CSV found inside {url}; archive contained: {zf.namelist()}"
-                    )
-                with zf.open(csv_name) as raw_file:
-                    reader = csv.DictReader(io.TextIOWrapper(raw_file, encoding="utf-8-sig"))
-                    month_records = [dict(r) for r in reader]
-            log.info(
-                "airport_operations:   %.2f MB downloaded, %d raw CSV rows",
-                size_mb, len(month_records),
-            )
-            records.extend(month_records)
+            with zf.open(csv_name) as raw_file:
+                reader = csv.DictReader(io.TextIOWrapper(raw_file, encoding="utf-8-sig"))
+                records = [dict(r) for r in reader]
+        log.info(
+            "airport_operations:   %.2f MB downloaded, %d raw CSV rows",
+            size_mb, len(records),
+        )
         return records
 
     def transform(self, raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -217,20 +208,32 @@ class AirportOperationsETL:
             return
         log.info("Starting %s ETL.", self.DATASET_NAME)
         t0 = time.monotonic()
+        total_extracted = 0
+        total_aggregated = 0
+        total_stored = 0
         try:
-            raw = await self.extract()
-            rows = self.transform(raw)
-            count = self.load(rows)
+            months = await _available_months(self._client)
+            if not months:
+                raise ValueError("No marketing-carrier on-time files found in PREZIP index")
+            selected = months[:OPERATIONS_MONTHS_WINDOW]
+            self._latest_period = f"{selected[0][0]}-{selected[0][1]:02d}"
+            for i, (year, month) in enumerate(selected, 1):
+                raw = await self.extract(year, month, i, len(selected))
+                rows = self.transform(raw)
+                total_stored += self.load(rows)
+                total_extracted += len(raw)
+                total_aggregated += len(rows)
             elapsed = time.monotonic() - t0
             self._dal.update_sync_state(
                 self.DATASET_NAME,
                 status="success",
-                rows_loaded=count,
+                rows_loaded=total_stored,
                 latest_source_period=self._latest_period,
             )
             log.info(
                 "%s ETL completed: extracted=%d aggregated=%d stored=%d latest=%s (%.1fs).",
-                self.DATASET_NAME, len(raw), len(rows), count, self._latest_period, elapsed,
+                self.DATASET_NAME, total_extracted, total_aggregated, total_stored,
+                self._latest_period, elapsed,
             )
         except Exception as exc:  # noqa: BLE001
             elapsed = time.monotonic() - t0

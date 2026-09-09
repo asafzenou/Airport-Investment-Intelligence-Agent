@@ -339,7 +339,7 @@ Run the four assignment questions in Streamlit and compare every numeric claim d
 ## 16. Existing Data Limitations
 
 - `TRAFFIC_MONTHS_WINDOW` is `36`, allowing two 12-month windows when source coverage is complete.
-- `OPERATIONS_MONTHS_WINDOW` is `1` for the MVP, so operations may cover a much shorter period than traffic.
+- `OPERATIONS_MONTHS_WINDOW` is `3`, so operations cover the three most recently published months (processed one at a time).
 - ANC long-haul uses a project threshold of `2,500` miles.
 - ANC route coverage is US domestic reported traffic and may omit international departures.
 - LAX/SNA congestion is an operational proxy, not terminal crowding.

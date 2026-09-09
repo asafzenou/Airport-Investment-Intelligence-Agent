@@ -130,7 +130,7 @@ Central location for tunable constants:
 | `REFRESH_HOURS["routes"]` | 168 h (7 days) | Max age before re-fetch |
 | `REFRESH_HOURS["airport_operations"]` | 168 h (7 days) | Max age before re-fetch |
 | `TRAFFIC_MONTHS_WINDOW` | 36 | Months of traffic history requested |
-| `OPERATIONS_MONTHS_WINDOW` | 1 | Months of on-time/routes history loaded (MVP: 1 to limit runtime) |
+| `OPERATIONS_MONTHS_WINDOW` | 3 | Months of on-time/routes history loaded; processed one month at a time |
 | `LONG_HAUL_MILES` | 2 500.0 | Min distance to count as long-haul (Anchorage queries) |
 | `NEW_ENGLAND_STATES` | CT, ME, MA, NH, RI, VT | US Census Bureau New England division; used to derive the `region` field in `airports` |
 | `EXPANSION_SCORE_WEIGHTS` | see below | Per-signal weights for the terminal-expansion composite score; must sum to 1.0 |
@@ -154,7 +154,7 @@ flowchart TD
 
     M -->|"extract()"| S1["ArcGIS REST"]
     T -->|"extract()"| S2["Socrata SODA"]
-    R -->|"extract()"| S4["BTS PREZIP ZIPs ×1"]
+    R -->|"extract()"| S4["BTS PREZIP ZIPs ×3"]
     O -->|"extract()"| S4
 
     M -->|"load()"| DAL["AviationDAL"]
@@ -259,7 +259,7 @@ $offset=<incremented per page>
 
 **Dataset:** Marketing Carrier On-Time Performance (Beginning January 2018) — same dataset used by `AirportOperationsETL`.
 
-**Access:** BTS PREZIP monthly bulk downloads. The PREZIP directory is parsed at runtime (via the shared `_available_months()` helper from `airport_operations_etl.py`) to discover which months are actually published. The `OPERATIONS_MONTHS_WINDOW` (1) most recently published months are loaded.
+**Access:** BTS PREZIP monthly bulk downloads. The PREZIP directory is parsed at runtime (via the shared `_available_months()` helper from `airport_operations_etl.py`) to discover which months are actually published. The `OPERATIONS_MONTHS_WINDOW` (3) most recently published months are loaded, one at a time.
 
 **URL format:**
 
@@ -299,7 +299,7 @@ https://transtats.bts.gov/PREZIP/On_Time_Marketing_Carrier_On_Time_Performance_B
 
     https://transtats.bts.gov/PREZIP/On_Time_Marketing_Carrier_On_Time_Performance_Beginning_January_2018_{YYYY}_{M}.zip
 
-**Window:** The `OPERATIONS_MONTHS_WINDOW` (1) most recently published months as discovered from the PREZIP index. BTS typically publishes each month 4–6 weeks after it closes, so the pipeline reads the index rather than assuming the previous calendar month is available. The actual latest published period is recorded in `sync_state.latest_source_period` after each successful run.
+**Window:** The `OPERATIONS_MONTHS_WINDOW` (3) most recently published months as discovered from the PREZIP index. Each month is downloaded, aggregated, and loaded separately to bound peak memory. BTS typically publishes each month 4–6 weeks after it closes, so the pipeline reads the index rather than assuming the previous calendar month is available. The actual latest published period is recorded in `sync_state.latest_source_period` after each successful run.
 
 **Aggregation:** Individual flight rows are aggregated into one row per `(Origin, Year, Month)`. A flight is counted as delayed when `DepDelay > 15` minutes (BTS standard threshold). Cancelled flights are excluded from delay averages.
 
@@ -482,7 +482,7 @@ Checking on a fixed interval does not imply the provider publishes on the same s
 - **On-time performance scope:** Marketing Carrier On-Time Performance covers domestic scheduled passenger flights reported by marketing carriers. International flights, charters, and general aviation are excluded.
 - **PREZIP index discovery:** Both `RoutesETL` and `AirportOperationsETL` query `https://transtats.bts.gov/PREZIP/` at runtime to discover which monthly files are actually published. This avoids assuming the previous calendar month is available, since BTS typically publishes with a 4–6 week lag. The PREZIP URL format itself is stable but not formally documented and could change without notice.
 - **`latest_source_period`** is populated by `RoutesETL` and `AirportOperationsETL` after each successful run (format: `YYYY-MM`). It is not populated by `AirportMetadataETL` or `AirportTrafficETL`.
-- **MVP window:** `OPERATIONS_MONTHS_WINDOW = 1` limits both `RoutesETL` and `AirportOperationsETL` to the single most recently published month. This keeps runtime and memory low during development; increase the value in `config.py` to extend historical coverage.
+- **Rolling window:** `OPERATIONS_MONTHS_WINDOW = 3` loads the three most recently published months for both `RoutesETL` and `AirportOperationsETL`. Each month is processed individually (download → aggregate → load) so peak memory stays bounded; change the value in `config.py` to extend or narrow coverage.
 - **Long-haul threshold** (`LONG_HAUL_MILES = 2 500`) is a configurable assumption documented in `config.py`, not an official BTS classification.
 - **Local database purpose:** The database supports analytical comparison. It does not estimate construction costs or project ROI.
 - **No vector database:** All selected sources are structured and require exact filtering, aggregation, and deterministic calculations.

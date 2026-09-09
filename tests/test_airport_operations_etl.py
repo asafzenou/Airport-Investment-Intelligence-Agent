@@ -181,69 +181,42 @@ def test_load_upserts_operations(dal: AviationDAL, tmp_db: SQLiteHandler) -> Non
 
 
 @respx.mock
-async def test_extract_reads_latest_12_months(dal: AviationDAL) -> None:
-    respx.get(_PREZIP_INDEX).mock(
-        return_value=httpx.Response(200, text=_index_html(_TEST_MONTHS))
+async def test_extract_reads_single_month(dal: AviationDAL) -> None:
+    year, month = _TEST_MONTHS[0]
+    csv_content = "\n".join([_CSV_HEADER, _csv_row(year=year, month=month)])
+    zip_bytes = make_zip(f"On_Time_{year}_{month}.csv", csv_content)
+    respx.get(_prezip_url(year, month)).mock(
+        return_value=httpx.Response(200, content=zip_bytes)
     )
-    for year, month in _TEST_MONTHS:
-        csv_content = "\n".join([_CSV_HEADER, _csv_row(year=year, month=month)])
-        zip_bytes = make_zip(f"On_Time_{year}_{month}.csv", csv_content)
-        respx.get(_prezip_url(year, month)).mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
 
     async with httpx.AsyncClient() as client:
         etl = AirportOperationsETL(dal, client)
-        records = await etl.extract()
+        records = await etl.extract(year, month, 1, 1)
 
-    assert len(records) == OPERATIONS_MONTHS_WINDOW
-
-
-@respx.mock
-async def test_extract_sets_latest_period(dal: AviationDAL) -> None:
-    respx.get(_PREZIP_INDEX).mock(
-        return_value=httpx.Response(200, text=_index_html(_TEST_MONTHS))
-    )
-    for year, month in _TEST_MONTHS:
-        csv_content = "\n".join([_CSV_HEADER, _csv_row(year=year, month=month)])
-        zip_bytes = make_zip(f"On_Time_{year}_{month}.csv", csv_content)
-        respx.get(_prezip_url(year, month)).mock(
-            return_value=httpx.Response(200, content=zip_bytes)
-        )
-
-    async with httpx.AsyncClient() as client:
-        etl = AirportOperationsETL(dal, client)
-        await etl.extract()
-
-    assert etl._latest_period == "2026-06"
+    assert len(records) == 1
 
 
 @respx.mock
-async def test_extract_raises_when_index_empty(dal: AviationDAL) -> None:
+async def test_run_records_error_when_index_empty(dal: AviationDAL) -> None:
     respx.get(_PREZIP_INDEX).mock(return_value=httpx.Response(200, text="<html>empty</html>"))
-    with pytest.raises(ValueError, match="No marketing-carrier"):
-        async with httpx.AsyncClient() as client:
-            etl = AirportOperationsETL(dal, client)
-            await etl.extract()
+    async with httpx.AsyncClient() as client:
+        etl = AirportOperationsETL(dal, client)
+        await etl.run()
+
+    state = dal.get_sync_state("airport_operations")
+    assert state is not None
+    assert state["status"] == "error"
 
 
 @respx.mock
 async def test_extract_raises_on_http_error(dal: AviationDAL) -> None:
-    respx.get(_PREZIP_INDEX).mock(
-        return_value=httpx.Response(200, text=_index_html(_TEST_MONTHS))
-    )
-    # First month returns 503; rest return valid ZIPs
     year, month = _TEST_MONTHS[0]
     respx.get(_prezip_url(year, month)).mock(return_value=httpx.Response(503))
-    for y, m in _TEST_MONTHS[1:]:
-        csv_content = "\n".join([_CSV_HEADER, _csv_row(year=y, month=m)])
-        zip_bytes = make_zip(f"On_Time_{y}_{m}.csv", csv_content)
-        respx.get(_prezip_url(y, m)).mock(return_value=httpx.Response(200, content=zip_bytes))
 
     with pytest.raises(httpx.HTTPStatusError):
         async with httpx.AsyncClient() as client:
             etl = AirportOperationsETL(dal, client)
-            await etl.extract()
+            await etl.extract(year, month, 1, 1)
 
 
 # ---------------------------------------------------------------------------
