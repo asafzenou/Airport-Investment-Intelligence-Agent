@@ -7,52 +7,29 @@ instructed never to calculate KPIs or invent missing values.
 
 ## Run locally
 
-Use Python 3.11 or newer and install dependencies with `uv sync`.
-`OPENAI_API_KEY` and `OPENAI_MODEL` must be set in the environment before
-running either entrypoint. Choose a model available to your account that
-supports the Responses API and function calling. No model is hard-coded.
+Copy `.env.example` to `.env` and fill in your values:
 
-PowerShell (replace the empty values locally):
-
-```powershell
-$env:OPENAI_API_KEY = ""
-$env:OPENAI_MODEL = ""
+```
+OPENAI_API_KEY=your-key-here
+OPENAI_MODEL=your-model-here
 ```
 
-Bash (replace the empty values locally):
+Choose a model available to your account that supports the Responses API and
+function calling. No model is hard-coded. Keep credentials out of source control.
+
+Then install dependencies and start the app:
 
 ```bash
-export OPENAI_API_KEY=""
-export OPENAI_MODEL=""
-```
-
-`.env.example` lists these variable names with empty values. Copy it to `.env`
-and fill in your values. The `--env-file .env` flag (used in the run commands
-below) loads that file automatically.
-Keep credentials out of source control.
-
-### Terminal interface (ingestion + analytics + chat)
-
-```bash
-uv run python main.py
+uv sync
+uv run app
 ```
 
 This runs the full process in order: data ingestion, deterministic analytics
-calculation, then an interactive terminal chat. The first run may take longer
+calculation, then launches the Streamlit graphical interface. Environment
+variables are loaded automatically from `.env`. The first run may take longer
 because aviation data must be downloaded from public sources. Later runs are
 typically faster because the ETL freshness checks skip datasets that were
 updated recently.
-
-### Graphical chat interface
-
-```bash
-uv run --env-file .env streamlit run streamlit_app.py
-```
-
-Streamlit reads the analytics snapshot already stored in `storage/aviation.db`.
-It does not run ingestion or recalculate analytics. If the database or result
-rows are missing, run `uv run python main.py` first (or the individual pipeline
-commands below). Restart Streamlit after changing environment configuration.
 
 ### Running pipeline stages individually
 
@@ -62,8 +39,8 @@ uv run python -m data_pipeline.run_analytics
 uv run --env-file .env streamlit run streamlit_app.py
 ```
 
-Use this sequence when you want to refresh data without entering the terminal
-chat, or to troubleshoot individual pipeline stages.
+Use this sequence when you want to refresh data or troubleshoot individual
+pipeline stages without going through the full startup.
 
 ## Supported questions and limitations
 
