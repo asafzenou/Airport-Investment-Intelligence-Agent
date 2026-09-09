@@ -383,7 +383,7 @@ Run the four assignment questions in Streamlit and compare every numeric claim d
 
 The model must preserve the period, `data_scope`, and `limitations` stored with each result.
 
-## 18. Key Tradeoffs
+## 17. Key Tradeoffs
 
 ### Four fixed tools instead of generic queries
 
@@ -409,7 +409,7 @@ Session history supports follow-ups without another database schema.
 
 The snapshot keeps answers fast and reproducible. Freshness depends on running ingestion and analytics.
 
-## 19. Out of Scope
+## 18. Out of Scope
 
 - Voice interaction.
 - Generic analytics for every US airport or region.
@@ -420,7 +420,7 @@ The snapshot keeps answers fast and reproducible. Freshness depends on running i
 - FastAPI, React, queues, or microservices.
 - Automated investment decisions or financial-return projections.
 
-## 20. Definition of Done
+## 19. Definition of Done
 
 - The four assignment question types work through Streamlit.
 - Every number comes from its analytics table.
