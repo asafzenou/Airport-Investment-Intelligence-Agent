@@ -8,9 +8,9 @@ instructed never to calculate KPIs or invent missing values.
 ## Run locally
 
 Use Python 3.11 or newer and install dependencies with `uv sync`.
-Set `OPENAI_API_KEY` and `OPENAI_MODEL` in the environment of the terminal that
-launches Streamlit. Choose a model available to your account that supports the
-Responses API and function calling. No model is hard-coded.
+`OPENAI_API_KEY` and `OPENAI_MODEL` must be set in the environment before
+running either entrypoint. Choose a model available to your account that
+supports the Responses API and function calling. No model is hard-coded.
 
 PowerShell (replace the empty values locally):
 
@@ -26,8 +26,34 @@ export OPENAI_API_KEY=""
 export OPENAI_MODEL=""
 ```
 
-`.env.example` lists these variables; the application does not load `.env` files.
-Keep credentials out of source control. Then run, in order:
+`.env.example` lists these variable names with empty values. The application
+does not load `.env` files automatically; set variables in your shell.
+Keep credentials out of source control.
+
+### Terminal interface (ingestion + analytics + chat)
+
+```bash
+uv run python main.py
+```
+
+This runs the full process in order: data ingestion, deterministic analytics
+calculation, then an interactive terminal chat. The first run may take longer
+because aviation data must be downloaded from public sources. Later runs are
+typically faster because the ETL freshness checks skip datasets that were
+updated recently.
+
+### Graphical chat interface
+
+```bash
+uv run streamlit run streamlit_app.py
+```
+
+Streamlit reads the analytics snapshot already stored in `storage/aviation.db`.
+It does not run ingestion or recalculate analytics. If the database or result
+rows are missing, run `uv run python main.py` first (or the individual pipeline
+commands below). Restart Streamlit after changing environment configuration.
+
+### Running pipeline stages individually
 
 ```bash
 uv run python -m data_pipeline.data_pipeline
@@ -35,11 +61,8 @@ uv run python -m data_pipeline.run_analytics
 uv run streamlit run streamlit_app.py
 ```
 
-Ingestion downloads aviation data into `storage/aviation.db`. Analytics reads
-that data and replaces the stored result snapshot. Chat never runs either step
-automatically. If a database or analytical result is missing, run the first two
-commands manually. If results remain unavailable, inspect pipeline logs and
-source coverage. Restart Streamlit after changing environment configuration.
+Use this sequence when you want to refresh data without entering the terminal
+chat, or to troubleshoot individual pipeline stages.
 
 ## Supported questions and limitations
 

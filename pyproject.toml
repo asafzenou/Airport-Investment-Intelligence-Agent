@@ -1,7 +1,7 @@
 [project]
 name = "airport-investment-intelligence-agent"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI-powered conversational interface over deterministic US airport investment analytics"
 authors = [
     { name = "Asaf Zenou", email = "zenoua@post.bgu.ac.il" }
 ]
