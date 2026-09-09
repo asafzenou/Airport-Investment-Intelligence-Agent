@@ -629,7 +629,10 @@ class AnalyticsService:
                 "calculated_at": now,
                 "period_start": period_start,
                 "period_end": period_end,
-                "data_scope": "SFO served passengers and scheduled seat capacity from BTS T-100",
+                "data_scope": (
+                    "Passenger and scheduled-seat data from BTS T-100; "
+                    "delay and cancellation metrics from BTS On-Time Performance."
+                ),
                 "limitations": (
                     "True unmet demand cannot be measured from BTS public data. "
                     "Failed booking attempts, rejected passengers, and willingness-to-pay "
