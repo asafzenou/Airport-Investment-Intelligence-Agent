@@ -196,6 +196,59 @@ class AviationDAL:
         )
         return [dict(r) for r in rows]
 
+    # ------------------------------------------------------------------
+    # Availability queries (used by the UI sidebar)
+    # ------------------------------------------------------------------
+
+    _ALLOWED_TABLES: frozenset[str] = frozenset(
+        {"airports", "airport_traffic", "routes", "airport_operations"}
+    )
+
+    def get_row_count(self, table: str) -> int:
+        """Return the total number of rows in *table*. Returns 0 for empty tables."""
+        if table not in self._ALLOWED_TABLES:
+            raise ValueError(f"Unknown table: {table!r}")
+        row = self._db.fetchone(f"SELECT COUNT(*) AS cnt FROM {table}")
+        return int(row["cnt"]) if row else 0
+
+    def get_timeseries_stats(self, table: str) -> dict[str, Any]:
+        """Return availability stats for a table that has integer year+month columns.
+
+        Keys returned:
+          count           – total row count (0 when table is empty)
+          earliest_year   – integer year of the oldest period, or None
+          earliest_month  – integer month of the oldest period, or None
+          latest_year     – integer year of the most-recent period, or None
+          latest_month    – integer month of the most-recent period, or None
+          distinct_months – number of distinct (year, month) combinations
+        """
+        if table not in {"airport_traffic", "routes", "airport_operations"}:
+            raise ValueError(f"Table {table!r} does not have year/month columns")
+        row = self._db.fetchone(
+            f"SELECT COUNT(*) AS cnt, "
+            f"MIN(year * 100 + month) AS earliest_key, "
+            f"MAX(year * 100 + month) AS latest_key, "
+            f"COUNT(DISTINCT year * 100 + month) AS distinct_months "
+            f"FROM {table}"
+        )
+        if not row or not row["cnt"]:
+            return {
+                "count": 0,
+                "earliest_year": None, "earliest_month": None,
+                "latest_year": None, "latest_month": None,
+                "distinct_months": 0,
+            }
+        earliest_key = row["earliest_key"]
+        latest_key = row["latest_key"]
+        return {
+            "count": int(row["cnt"]),
+            "earliest_year": int(earliest_key) // 100 if earliest_key else None,
+            "earliest_month": int(earliest_key) % 100 if earliest_key else None,
+            "latest_year": int(latest_key) // 100 if latest_key else None,
+            "latest_month": int(latest_key) % 100 if latest_key else None,
+            "distinct_months": int(row["distinct_months"]),
+        }
+
     def transaction(self):
         """Expose an atomic multi-statement SQLite transaction."""
         return self._db.transaction()

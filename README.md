@@ -26,8 +26,9 @@ export OPENAI_API_KEY=""
 export OPENAI_MODEL=""
 ```
 
-`.env.example` lists these variable names with empty values. The application
-does not load `.env` files automatically; set variables in your shell.
+`.env.example` lists these variable names with empty values. Copy it to `.env`
+and fill in your values. The `--env-file .env` flag (used in the run commands
+below) loads that file automatically.
 Keep credentials out of source control.
 
 ### Terminal interface (ingestion + analytics + chat)
@@ -45,7 +46,7 @@ updated recently.
 ### Graphical chat interface
 
 ```bash
-uv run streamlit run streamlit_app.py
+uv run --env-file .env streamlit run streamlit_app.py
 ```
 
 Streamlit reads the analytics snapshot already stored in `storage/aviation.db`.
@@ -58,7 +59,7 @@ commands below). Restart Streamlit after changing environment configuration.
 ```bash
 uv run python -m data_pipeline.data_pipeline
 uv run python -m data_pipeline.run_analytics
-uv run streamlit run streamlit_app.py
+uv run --env-file .env streamlit run streamlit_app.py
 ```
 
 Use this sequence when you want to refresh data without entering the terminal

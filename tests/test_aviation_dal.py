@@ -136,3 +136,101 @@ def test_update_sync_state_rows_loaded(dal: AviationDAL) -> None:
     state = dal.get_sync_state("routes")
     assert state is not None
     assert state["rows_loaded"] == 42
+
+
+# ------------------------------------------------------------------
+# get_row_count
+# ------------------------------------------------------------------
+
+
+def test_get_row_count_empty(dal: AviationDAL) -> None:
+    assert dal.get_row_count("airports") == 0
+
+
+def test_get_row_count_after_insert(dal: AviationDAL) -> None:
+    dal.upsert_airports([_airport("JFK"), _airport("LAX")])
+    assert dal.get_row_count("airports") == 2
+
+
+def test_get_row_count_unknown_table_raises(dal: AviationDAL) -> None:
+    import pytest
+    with pytest.raises(ValueError, match="Unknown table"):
+        dal.get_row_count("nonexistent_table")
+
+
+# ------------------------------------------------------------------
+# get_timeseries_stats
+# ------------------------------------------------------------------
+
+
+def _traffic_row(airport: str, year: int, month: int) -> dict:
+    return {
+        "airport_code": airport,
+        "year": year,
+        "month": month,
+        "departures": 100,
+        "passengers": 8000,
+        "seats": 9000,
+        "load_factor": 88.9,
+        "passengers_per_flight": 80.0,
+    }
+
+
+def test_get_timeseries_stats_empty(dal: AviationDAL) -> None:
+    result = dal.get_timeseries_stats("airport_traffic")
+    assert result == {
+        "count": 0,
+        "earliest_year": None, "earliest_month": None,
+        "latest_year": None, "latest_month": None,
+        "distinct_months": 0,
+    }
+
+
+def test_get_timeseries_stats_single_row(dal: AviationDAL) -> None:
+    dal.upsert_traffic([_traffic_row("LAX", 2024, 6)])
+    result = dal.get_timeseries_stats("airport_traffic")
+    assert result["count"] == 1
+    assert result["earliest_year"] == 2024
+    assert result["earliest_month"] == 6
+    assert result["latest_year"] == 2024
+    assert result["latest_month"] == 6
+    assert result["distinct_months"] == 1
+
+
+def test_get_timeseries_stats_picks_earliest_and_latest_period(dal: AviationDAL) -> None:
+    dal.upsert_traffic([
+        _traffic_row("LAX", 2023, 9),
+        _traffic_row("LAX", 2025, 3),
+        _traffic_row("SFO", 2025, 1),
+    ])
+    result = dal.get_timeseries_stats("airport_traffic")
+    assert result["earliest_year"] == 2023
+    assert result["earliest_month"] == 9
+    assert result["latest_year"] == 2025
+    assert result["latest_month"] == 3
+    assert result["distinct_months"] == 3
+
+
+def test_get_timeseries_stats_invalid_table_raises(dal: AviationDAL) -> None:
+    import pytest
+    with pytest.raises(ValueError, match="year/month"):
+        dal.get_timeseries_stats("airports")
+
+
+def test_get_timeseries_stats_routes(dal: AviationDAL) -> None:
+    dal.upsert_routes([
+        {
+            "origin_airport": "ANC",
+            "destination_airport": "SEA",
+            "year": 2024,
+            "month": 12,
+            "distance_miles": 1450.0,
+            "scheduled_departures": 30,
+            "performed_departures": 29,
+            "passengers": 4800,
+            "seats": 5200,
+        }
+    ])
+    result = dal.get_timeseries_stats("routes")
+    assert result["latest_year"] == 2024
+    assert result["latest_month"] == 12
