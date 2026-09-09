@@ -12,7 +12,7 @@ The layer consists of:
 - One pipeline that coordinates the four ETL objects.
 - No vector database, ORM, message queue, ETL framework, or class hierarchy.
 
-The chat agent and scoring logic will be built on top of this layer and are outside the scope of this document.
+The analytics layer (`data_pipeline/analytics/service.py`) and conversational agent (`airport_agent/`) are built on top of this layer and read from the same SQLite database.
 
 ## 2. Code structure
 
@@ -133,17 +133,16 @@ Central location for tunable constants:
 | `OPERATIONS_MONTHS_WINDOW` | 3 | Months of on-time/routes history loaded; processed one month at a time |
 | `LONG_HAUL_MILES` | 2 500.0 | Min distance to count as long-haul (Anchorage queries) |
 | `NEW_ENGLAND_STATES` | CT, ME, MA, NH, RI, VT | US Census Bureau New England division; used to derive the `region` field in `airports` |
-| `EXPANSION_SCORE_WEIGHTS` | see below | Per-signal weights for the terminal-expansion composite score; must sum to 1.0 |
+| `EXPANSION_WEIGHTS` | see below | Per-signal weights for the terminal-expansion composite score; must sum to 1.0 |
 
-`EXPANSION_SCORE_WEIGHTS` values:
+`EXPANSION_WEIGHTS` values:
 
 | Signal | Weight |
 |---|---:|
-| `passenger_growth` | 0.35 |
-| `load_factor` | 0.25 |
-| `departure_growth` | 0.20 |
-| `delay_rate` | 0.15 |
-| `cancellation_rate` | 0.05 |
+| `passenger_growth` | 0.40 |
+| `load_factor` | 0.30 |
+| `delay_rate` | 0.20 |
+| `current_passengers` | 0.10 |
 
 ```mermaid
 flowchart TD
@@ -440,7 +439,7 @@ flowchart LR
 
     M -->|async extract| S1["ArcGIS"]
     T -->|async extract| S2["Socrata"]
-    R -->|async extract| S4["BTS ZIPs ×1"]
+    R -->|async extract| S4["BTS ZIPs ×3"]
     O -->|async extract| S4
 
     M -->|sync transform + load| DB[("aviation.db")]

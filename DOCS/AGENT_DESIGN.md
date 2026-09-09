@@ -1,25 +1,41 @@
 # AI Agent Design
 
-> Repository-verified design based on commit `c16a7f7` (`Analytics setup`).
+## End-to-End Flow
 
-## End-to-End Flow (`main.py`)
+### Recommended flow (`uv run app`)
+
+```
+uv run app
+  → app/main.py
+  → load .env
+  → validate OPENAI_API_KEY and OPENAI_MODEL
+  → asyncio.run(run_pipeline(DB_PATH))  # ingest aviation data into SQLite
+  → AnalyticsService.run_all()          # calculate and store deterministic results
+  → launch streamlit_app.py            # graphical chat interface
+  → answer questions through AgentService and approved tools
+```
+
+`app/main.py` owns orchestration only. It delegates ingestion to the ETL
+coordinator, analytics to `AnalyticsService`, and launches Streamlit as a
+subprocess. `streamlit_app.py` reads the stored analytics snapshot and does not
+re-run ingestion or analytics during the session.
+
+### Alternative terminal flow (`main.py`)
+
+`main.py` at the repository root is an alternative orchestration entrypoint.
+It runs the pipeline and analytics before starting an interactive terminal chat:
 
 ```
 main.py
-  → validate_environment()          # check OPENAI_API_KEY, OPENAI_MODEL
+  → validate_environment()              # check OPENAI_API_KEY, OPENAI_MODEL
   → asyncio.run(run_pipeline(DB_PATH))  # ingest aviation data into SQLite
-  → AnalyticsService.run_all()      # calculate and store deterministic results
-  → AgentService                    # initialise OpenAI client + tool registry
-  → interactive terminal chat       # read/print loop over stdin
+  → AnalyticsService.run_all()          # calculate and store deterministic results
+  → AgentService                        # initialise OpenAI client + tool registry
+  → interactive terminal chat           # read/print loop over stdin
 ```
 
-`main.py` owns orchestration only. It delegates ingestion to the existing ETL
-coordinator, analytics to `AnalyticsService`, and conversation to
-`AgentService`. A single shared `AviationDAL` instance is passed to both
-`AnalyticsService` and `AgentTools` so they read from the same database handle.
-
-The Streamlit entrypoint (`streamlit_app.py`) skips ingestion and analytics and
-reads the stored snapshot directly.
+This entrypoint is not the recommended graphical execution flow. Use `uv run app`
+for the Streamlit interface.
 
 ---
 
@@ -44,9 +60,9 @@ The chat agent must describe this scope honestly. It must not imply that the exi
 
 The phrase “unmet demand” must always be qualified: the current result is a deterministic capacity-pressure proxy. BTS public data does not measure failed bookings, rejected passengers, airline schedule requests, or willingness to pay.
 
-## 3. Existing Repository Foundation
+## 3. Repository Structure
 
-The verified repository currently contains:
+The repository contains the following components:
 
 ```
 data_pipeline/
@@ -58,20 +74,35 @@ data_pipeline/
 ├── data_pipeline.py
 └── run_analytics.py
 
+airport_agent/
+├── __init__.py
+├── service.py
+└── tools.py
+
+agents/
+└── airport-agent.md
+
+app/
+└── main.py
+
+streamlit_app.py
+main.py
+
 DOCS/
 ├── ANALYTICS_DESIGN.md
+├── AGENT_DESIGN.md
 └── DATA_ARCHITECTURE.md
 
 storage/aviation.db  # local runtime file; not present in a fresh clone
 ```
 
-`AnalyticsService.run_all()` calculates all four use cases and atomically replaces the four analytics result tables. The chat application reads these stored results. It must not invoke the ETL pipeline or recalculate analytics during a conversation.
+`AnalyticsService.run_all()` calculates all four use cases and atomically replaces the four analytics result tables. The chat application reads these stored results through `AviationDAL`. It does not invoke the ETL pipeline or recalculate analytics during a conversation.
 
-The existing `AviationDAL` exposes source-table reads used by `AnalyticsService`, but it does not yet expose reads for the analytics result tables. Those small read methods are required for the agent layer.
+`AviationDAL` exposes both source-table reads (used by `AnalyticsService`) and read-only methods for the four analytics result tables (used by `AgentTools`).
 
-## 4. Proposed Code Structure
+## 4. Agent Code Structure
 
-Add only this small layer:
+The agent layer is implemented as a small addition on top of the data pipeline:
 
 ```
 airport_agent/
@@ -95,11 +126,11 @@ tests/
 | `airport_agent/service.py` | OpenAI Responses API call and bounded tool-calling loop |
 | `agents/airport-agent.md` | OpenAI system instructions loaded by `AgentService` at initialisation |
 | `streamlit_app.py` | Chat UI and session-scoped conversation history |
-| `aviation_dal.py` | Fixed SQL reads for the four analytics tables |
+| `data_pipeline/dal/aviation_dal.py` | Fixed SQL reads for the four source and analytics tables |
 
 `AgentService` loads `agents/airport-agent.md` once during `__init__` using `pathlib.Path`, resolved relative to the repository root. If the file is missing or empty, it raises `AgentError` with a safe user-facing message. The loaded text is stored on `self._instructions` and passed to the OpenAI Responses API on every call. There is no Python constant containing the system prompt.
 
-Do not add FastAPI, an ORM, LangChain, a vector database, a repository layer, or multiple agent classes.
+The implementation uses no FastAPI, ORM, LangChain, vector database, repository layer, or multiple agent classes.
 
 ## 5. Architecture
 
@@ -121,9 +152,9 @@ SQLite analytics table
 
 The OpenAI API never connects directly to SQLite. The application executes an approved local function after the model requests it.
 
-## 6. Required DAL Reads
+## 6. DAL Reads for Agent Tools
 
-Add four read-only methods to `AviationDAL`. Return dictionaries, consistent with its existing methods.
+`AviationDAL` exposes four read-only methods for the analytics result tables. They return dictionaries, consistent with its other methods.
 
 ### `get_expansion_scores(limit: int)`
 
@@ -292,25 +323,25 @@ For simplicity, the model may call the same analytical tool again when a follow-
 
 ## 13. Streamlit Interface
 
-`streamlit_app.py` should:
+`streamlit_app.py`:
 
-- create `SQLiteHandler(DB_PATH)`, `AviationDAL`, and `AgentService` once per session;
-- display a title and one-sentence scope statement;
-- show the four assignment example questions;
-- render messages with `st.chat_message`;
-- accept input with `st.chat_input`;
-- show a spinner while awaiting OpenAI;
-- display short configuration and runtime errors;
-- preserve history in `st.session_state`.
+- creates `SQLiteHandler(DB_PATH)`, `AviationDAL`, and `AgentService` once per session;
+- displays a title and scope statement;
+- shows the four assignment example questions as clickable buttons;
+- renders messages with `st.chat_message`;
+- accepts input with `st.chat_input`;
+- shows a spinner while awaiting OpenAI;
+- displays short configuration and runtime errors;
+- preserves history in `st.session_state`.
 
-The interface must not automatically run ingestion or analytics. When the database or result rows are missing, tell the user to run:
+The interface does not automatically run ingestion or analytics. When the database or result rows are missing, it tells the user to run:
 
 ```
 uv run python -m data_pipeline.data_pipeline
 uv run python -m data_pipeline.run_analytics
 ```
 
-Voice support is excluded because it is only a bonus.
+Voice support is not implemented; it is a bonus requirement only.
 
 ## 14. Error Handling
 

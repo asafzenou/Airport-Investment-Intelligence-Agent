@@ -52,9 +52,10 @@ pipeline stages without going through the full startup.
 | What does the SFO unmet-demand proxy show, and why? | Capacity-pressure proxy, not measured unserved demand or passengers denied travel. |
 
 Other airports, regions, custom periods, ROI projections and forecasts are not
-implemented. Traffic requests cover 36 months, while operations/routes currently
-cover one published month. Actual periods can differ and missing inputs produce
-null scores. Answers should disclose the stored period, scope and material
+implemented. Traffic requests cover 36 months; operations and routes load the
+three most recently published months. The actual periods available are discovered
+at runtime from the BTS PREZIP index and displayed in the sidebar. Missing inputs
+produce null scores. Answers should disclose the stored period, scope and material
 limitations, including project assumptions. See [Analytics Design](DOCS/ANALYTICS_DESIGN.md)
 for formulas and [Agent Design](DOCS/AGENT_DESIGN.md) for the conversational layer.
 
@@ -64,6 +65,16 @@ OpenAI using the [Responses function-calling API](https://developers.openai.com/
 Responses use `store=False`; the application adds no persistent chat storage.
 Tool continuations preserve response output, including reasoning context, and
 execute at most three tool rounds. Voice is not implemented.
+
+## Development Approach
+
+The project was developed through an iterative, AI-assisted workflow with human review and validation at every stage.
+
+Requirements were first divided into three responsibility areas: data pipelines, deterministic analytics, and the conversational agent. Data ingestion was implemented first because reliable structured data is the foundation of the analytics. The architecture intentionally balances modularity with MVP simplicity.
+
+For each area, requirements and design were documented in Markdown, reviewed and refined manually before implementation was requested. Generated code was manually reviewed, and automated tests were added to detect regressions. After integration, the complete data flow and tool payloads were reviewed to ensure the LLM receives enough relevant evidence without unnecessary raw data.
+
+The developer retained responsibility for architecture, implementation decisions, review, and validation throughout.
 
 ## Verification
 
